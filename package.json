@@ -1,0 +1,16 @@
+{
+  "name": "job-tracker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.2",
+    "node-fetch": "^2.7.0"
+  }
+}
