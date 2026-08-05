@@ -244,14 +244,38 @@ web UI with background workers, which is the point where the single-writer limit
 | Generic "find the job list" heuristic scraper | High | Breaks subtly on *all* sites, in ways you can't unit-test. |
 | LLM-parses-the-page | Medium | Costs money per run, non-deterministic, silently hallucinates job titles. |
 
-**Decision:** adapter per platform.
+**Decision:** adapter per platform, discovered through a **registry** rather than a `switch`.
 
-**The leverage:** adapters key off *platform*, not *company*. One `ComeetAdapter` covers every
-Israeli company on Comeet — and a lot of them are. Write ~4 adapters (Comeet, Greenhouse,
-Lever, SuccessFactors) and you probably cover 80% of your target list with zero new code.
+Each adapter declares its own identity and config contract:
 
-**Consequence:** the long tail (Rafael, Elbit — big custom in-house systems) each need bespoke
-work. Budget them last, and only for companies you genuinely care about.
+```js
+class AmazonAdapter extends JobSource {
+    static type = 'amazon';
+    static describe = { help: '...', required: { country: '...' }, optional: { query: '...' } };
+}
+```
+
+`src/adapters/index.js` scans the folder at startup and builds the lookup table. `main.js`
+imports `buildAdapter` and nothing else — it never learns the name of a single adapter.
+
+> A `switch` is a receptionist with a handwritten list of names: every new employee means
+> editing the list, and forgetting to is a silent failure. A registry reads the name plates
+> on the doors.
+
+This is the plugin/registry pattern — the same shape as Express middleware, webpack loaders
+or VS Code extensions. The property that matters: **adding a platform touches exactly one
+file, the new one.**
+
+**Correction to an earlier estimate.** This doc originally claimed ~4 adapters would cover
+80% of the target list. That holds for companies that buy an off-the-shelf ATS. It does not
+hold for liraz's actual list — Amazon, Google, Microsoft, NVIDIA, Dell, IBM, Elbit, Rafael are
+eight companies on eight in-house systems. Here it is roughly one adapter per company. The
+isolation argument still stands (one company breaks, blast radius is 1); the reuse argument
+does not.
+
+**Consequence:** adding a *company* on an already-supported platform is a CLI call with no
+code at all (`tools/add-company.js`). Adding a *platform* is one new file. The long tail
+(Rafael, Elbit) still needs bespoke work — budget it last.
 
 ---
 

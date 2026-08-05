@@ -1,18 +1,8 @@
 const db = require('./db');
 const { matches } = require('./matcher');
-const { ComeetAdapter } = require('./adapters/comeetAdapter');
-
-function buildAdapter(company) {
-    const config = company.adapter_config ? JSON.parse(company.adapter_config) : {};
-    switch (company.adapter_type) {
-        case 'comeet':
-            return new ComeetAdapter(config);
-        // case 'greenhouse': return new GreenhouseAdapter(config);
-        // case 'custom_elbit': return new ElbitAdapter(config);
-        default:
-            throw new Error(`Unknown adapter_type: ${company.adapter_type}`);
-    }
-}
+// No list of adapters here on purpose — the registry discovers them. Adding a
+// platform never requires touching this file. See src/adapters/index.js.
+const { buildAdapter } = require('./adapters');
 
 async function runCycle() {
     const companies = db.getActiveCompanies();

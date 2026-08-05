@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>מעקב הגשות — Job Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="skip-link" href="#results">דלג לטבלה</a>
+
+<header class="site-header">
+  <h1>Job Tracker</h1>
+  <nav class="main-nav" aria-label="ניווט ראשי">
+    <a href="index.html">חיפוש משרות</a>
+    <a href="tracker.html" aria-current="page">מעקב הגשות</a>
+  </nav>
+  <span class="spacer"></span>
+  <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false">
+    <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+    <span id="theme-label">מצב לילה</span>
+  </button>
+</header>
+
+<main>
+  <h2 class="visually-hidden">סיכום ההגשות</h2>
+  <ul class="summary" id="summary" aria-label="סיכום לפי סטטוס"></ul>
+
+  <div class="card">
+    <div class="field" style="max-width:16rem">
+      <label for="f-status">הצג לפי סטטוס</label>
+      <select id="f-status"><option value="">כל הסטטוסים</option></select>
+    </div>
+  </div>
+
+  <div class="results-head">
+    <p class="results-count" id="results-count" role="status" aria-live="polite" aria-atomic="true">טוען…</p>
+    <p class="results-note" id="results-note"></p>
+  </div>
+
+  <div id="results" tabindex="-1"></div>
+</main>
+
+<button type="button" class="a11y-fab" id="a11y-fab"
+        aria-expanded="false" aria-controls="a11y-panel" aria-label="הגדרות נגישות">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="7.5" r="1.3" fill="currentColor"/>
+    <path d="M7 10.5h10M12 10.5V16M12 16l-2.2 3.2M12 16l2.2 3.2"/>
+  </svg>
+</button>
+
+<div class="a11y-panel" id="a11y-panel" role="dialog" aria-modal="false" aria-labelledby="a11y-title" hidden>
+  <h2 id="a11y-title">הגדרות נגישות</h2>
+  <p class="hint">ההעדפות נשמרות בדפדפן הזה.</p>
+
+  <div class="a11y-group">
+    <h3 id="a11y-font-label">גודל טקסט</h3>
+    <div class="a11y-row" role="group" aria-labelledby="a11y-font-label">
+      <button type="button" class="a11y-opt" data-set="font" data-value="normal" aria-pressed="true">רגיל</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="large" aria-pressed="false">גדול</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="larger" aria-pressed="false">גדול יותר</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="largest" aria-pressed="false">הכי גדול</button>
+    </div>
+  </div>
+
+  <div class="a11y-group">
+    <h3 id="a11y-display-label">תצוגה</h3>
+    <div class="a11y-row" role="group" aria-labelledby="a11y-display-label">
+      <button type="button" class="a11y-opt" data-toggle="contrast" data-on="high" aria-pressed="false">ניגודיות גבוהה</button>
+      <button type="button" class="a11y-opt" data-toggle="readable" data-on="on" aria-pressed="false">גופן קריא</button>
+      <button type="button" class="a11y-opt" data-toggle="links" data-on="highlight" aria-pressed="false">הדגשת קישורים</button>
+      <button type="button" class="a11y-opt" data-toggle="motion" data-on="off" aria-pressed="false">עצירת אנימציות</button>
+    </div>
+  </div>
+
+  <button type="button" class="btn" id="a11y-reset">איפוס הגדרות נגישות</button>
+</div>
+
+<script src="ui.js"></script>
+<script src="tracker.js"></script>
+</body>
+</html>

@@ -19,7 +19,26 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
     first_seen_at TEXT NOT NULL,   -- ISO timestamp
     last_seen_at TEXT NOT NULL,
     is_still_open INTEGER DEFAULT 1,
+    -- Fields the UI filters on. Normalized to closed vocabularies by the
+    -- adapters (see src/adapters/normalize.js) so "Full time" and "full-time"
+    -- don't become two separate options in a dropdown.
+    employment_type TEXT,          -- full-time | part-time | contract | temporary | internship
+    experience_level TEXT,         -- intern | entry | mid | senior
+    department TEXT,               -- source's own wording, e.g. "Algorithms"
+    posted_at TEXT,                -- source's own wording, not parsed to a date
     UNIQUE(company_id, external_id)
+);
+
+-- Your application pipeline. One row per job you've engaged with — absent means
+-- untouched. Deliberately separate from job_snapshots: a scrape rewrites job
+-- rows, and your own notes must never be collateral damage.
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_snapshot_id INTEGER NOT NULL UNIQUE REFERENCES job_snapshots(id),
+    status TEXT NOT NULL DEFAULT 'saved',  -- saved | applied | interviewing | offer | rejected
+    notes TEXT,
+    applied_at TEXT,
+    updated_at TEXT NOT NULL
 );
 
 -- Your saved search profiles (filters)

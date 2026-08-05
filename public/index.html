@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>חיפוש משרות — Job Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="skip-link" href="#results">דלג לתוצאות</a>
+
+<header class="site-header">
+  <h1>Job Tracker</h1>
+  <nav class="main-nav" aria-label="ניווט ראשי">
+    <a href="index.html" aria-current="page">חיפוש משרות</a>
+    <a href="tracker.html">מעקב הגשות</a>
+  </nav>
+  <span class="spacer"></span>
+  <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false">
+    <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+    <span id="theme-label">מצב לילה</span>
+  </button>
+</header>
+
+<main>
+  <form class="filters" id="filters" role="search" aria-labelledby="filters-legend">
+    <fieldset>
+      <legend id="filters-legend">סינון משרות</legend>
+
+      <div class="search-row">
+        <div class="field">
+          <label for="f-q">חיפוש חופשי</label>
+          <input type="text" id="f-q" name="q" class="ltr" autocomplete="off"
+                 placeholder="backend, algorithm…" aria-describedby="f-q-hint">
+          <span id="f-q-hint" class="visually-hidden">
+            מחפש בשם המשרה ובמחלקה. הקישי Enter או לחצי על כפתור החיפוש.
+          </span>
+        </div>
+        <button type="submit" class="btn primary" id="search-btn">חיפוש</button>
+      </div>
+
+      <div class="grid">
+        <div class="field">
+          <label for="f-company">חברה</label>
+          <select id="f-company"><option value="">כל החברות</option></select>
+        </div>
+        <div class="field">
+          <label for="f-experience">רמת ניסיון</label>
+          <select id="f-experience"><option value="">כל הרמות</option></select>
+        </div>
+        <div class="field">
+          <label for="f-employment">היקף משרה</label>
+          <select id="f-employment"><option value="">כל ההיקפים</option></select>
+        </div>
+        <div class="field">
+          <label for="f-location">מיקום</label>
+          <select id="f-location"><option value="">כל המיקומים</option></select>
+        </div>
+        <div class="field">
+          <label for="f-status">סטטוס הגשה</label>
+          <select id="f-status">
+            <option value="">כל הסטטוסים</option>
+            <option value="none">לא טופל</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <span class="checkbox">
+          <input type="checkbox" id="f-open" checked>
+          <label for="f-open">משרות פתוחות בלבד</label>
+        </span>
+        <button type="button" class="btn" id="reset">נקה סינון</button>
+      </div>
+    </fieldset>
+  </form>
+
+  <div class="results-head">
+    <p class="results-count" id="results-count" role="status" aria-live="polite" aria-atomic="true">טוען משרות…</p>
+    <p class="results-note" id="results-note"></p>
+  </div>
+
+  <div id="results" tabindex="-1"></div>
+</main>
+
+<!-- Accessibility settings. These change real CSS on the page rather than
+     faking assistive-technology behaviour, so they cooperate with a screen
+     reader instead of fighting it. -->
+<button type="button" class="a11y-fab" id="a11y-fab"
+        aria-expanded="false" aria-controls="a11y-panel" aria-label="הגדרות נגישות">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="7.5" r="1.3" fill="currentColor"/>
+    <path d="M7 10.5h10M12 10.5V16M12 16l-2.2 3.2M12 16l2.2 3.2"/>
+  </svg>
+</button>
+
+<div class="a11y-panel" id="a11y-panel" role="dialog" aria-modal="false" aria-labelledby="a11y-title" hidden>
+  <h2 id="a11y-title">הגדרות נגישות</h2>
+  <p class="hint">ההעדפות נשמרות בדפדפן הזה.</p>
+
+  <div class="a11y-group">
+    <h3 id="a11y-font-label">גודל טקסט</h3>
+    <div class="a11y-row" role="group" aria-labelledby="a11y-font-label">
+      <button type="button" class="a11y-opt" data-set="font" data-value="normal" aria-pressed="true">רגיל</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="large" aria-pressed="false">גדול</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="larger" aria-pressed="false">גדול יותר</button>
+      <button type="button" class="a11y-opt" data-set="font" data-value="largest" aria-pressed="false">הכי גדול</button>
+    </div>
+  </div>
+
+  <div class="a11y-group">
+    <h3 id="a11y-display-label">תצוגה</h3>
+    <div class="a11y-row" role="group" aria-labelledby="a11y-display-label">
+      <button type="button" class="a11y-opt" data-toggle="contrast" data-on="high" aria-pressed="false">ניגודיות גבוהה</button>
+      <button type="button" class="a11y-opt" data-toggle="readable" data-on="on" aria-pressed="false">גופן קריא</button>
+      <button type="button" class="a11y-opt" data-toggle="links" data-on="highlight" aria-pressed="false">הדגשת קישורים</button>
+      <button type="button" class="a11y-opt" data-toggle="motion" data-on="off" aria-pressed="false">עצירת אנימציות</button>
+    </div>
+  </div>
+
+  <button type="button" class="btn" id="a11y-reset">איפוס הגדרות נגישות</button>
+</div>
+
+<script src="ui.js"></script>
+<script src="search.js"></script>
+</body>
+</html>
