@@ -1,0 +1,62 @@
+[
+  {
+    "jobId": 20904,
+    "jobTitle": "מנהל.ת תכנית",
+    "jobCode": "7035",
+    "openDate": "2026-07-29T06:46:00",
+    "area": "North",
+    "employerName": "יבשה ותעש",
+    "employmentType": null,
+    "status": 1,
+    "locationAddress": null,
+    "cityId": null
+  },
+  {
+    "jobId": 20862,
+    "jobTitle": "Senior System Engineer",
+    "jobCode": "7015",
+    "openDate": "2026-07-22T07:16:00",
+    "area": "Sharon",
+    "employerName": "יבשה ותעש",
+    "employmentType": null,
+    "status": 1,
+    "locationAddress": null,
+    "cityId": null
+  },
+  {
+    "jobId": 20898,
+    "jobTitle": "סטודנט.ית לשיווק",
+    "jobCode": "7061",
+    "openDate": "2026-08-03T01:46:00",
+    "area": "Shfela",
+    "employerName": "יבשה ותעש",
+    "employmentType": null,
+    "status": 1,
+    "locationAddress": null,
+    "cityId": null
+  },
+  {
+    "jobId": 19535,
+    "jobTitle": "Technical Manager - Naval Systems",
+    "jobCode": "4873",
+    "openDate": "2025-05-27T09:46:00",
+    "area": "North",
+    "employerName": "מודיעין ול\"א",
+    "employmentType": "Full Time",
+    "status": 1,
+    "locationAddress": "חיפה והקריות",
+    "cityId": 4297140
+  },
+  {
+    "jobId": 20725,
+    "jobTitle": "Program Manager",
+    "jobCode": "6894",
+    "openDate": "2026-06-25T07:46:00",
+    "area": null,
+    "employerName": "כלי טיס",
+    "employmentType": null,
+    "status": 1,
+    "locationAddress": null,
+    "cityId": null
+  }
+]

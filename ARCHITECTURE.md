@@ -192,7 +192,7 @@ Two tiers, because F4 (fast) and F5 (digest) want different things:
 | Scrape + Telegram | every 30 min | full cycle, instant pings |
 | Email digest | 08:00 daily | drains pending email rows into one message |
 
-Start with `node-cron` in-process (one command, `node src/scheduler.js`, no OS config).
+Start with `node-cron` in-process (one command, `node server/scheduler.js`, no OS config).
 Move to system cron/systemd only when you deploy somewhere that reboots.
 
 Add jitter (`± a few minutes`) and a small delay between companies. Hitting the same endpoint
@@ -255,7 +255,7 @@ class AmazonAdapter extends JobSource {
 }
 ```
 
-`src/adapters/index.js` scans the folder at startup and builds the lookup table. `main.js`
+`server/adapters/index.js` scans the folder at startup and builds the lookup table. `main.js`
 imports `buildAdapter` and nothing else — it never learns the name of a single adapter.
 
 > A `switch` is a receptionist with a handwritten list of names: every new employee means
@@ -359,7 +359,7 @@ longer claim "sent" for something that never left the building.
 **Phase 1 — Prove one company end-to-end** *(the riskiest unknown, so it goes first)*
 1. Find one real target company's job endpoint via DevTools
 2. Confirm/fix `ComeetAdapter`'s field mapping against a real response
-3. `node src/main.js` prints real job titles
+3. `node server/main.js` prints real job titles
 
 **Phase 2 — Real notifications**
 4. `.gitignore` + `.env`
@@ -394,3 +394,53 @@ Phases 1–3 is a project that works. Everything after is polish.
 
 The DevTools step in the old README is only needed for companies whose platform I can't identify
 from the URL alone — send me the URLs first and we'll see how many of those there actually are.
+
+---
+
+### ADR-007: One account per person, and how a leak is prevented
+
+**Status:** Accepted (foundation built; registration flow not yet)
+**Date:** 2026-08-06
+
+**Context.** The tracker was designed for one user (N3). Opening it to the
+public changes what the data *is*: `applications` and `search_profiles` stop
+being "the" pipeline and become "someone's" pipeline.
+
+**Decision.**
+
+| Table | Owner |
+|---|---|
+| `users` | — |
+| `watched_companies`, `job_snapshots` | shared by everyone |
+| `applications`, `search_profiles`, `notifications_sent` | exactly one account |
+
+Sharing the job rows is the point: the scrape cost does not multiply with
+signups. A thousand accounts still means one request to Amazon.
+
+**The real risk is not authentication, it's a missing WHERE clause.** Auth is
+one function that either passes or fails. Tenant isolation is dozens of
+statements that must *each* remember `user_id`, and forgetting one produces no
+error — just someone else's applications on your screen, in production, found by
+a user rather than a test.
+
+So it is not left to discipline. `data/tenancy.js` exports `requireUser`, every
+repository function touching a personal table takes `userId` first and calls it,
+and `tests/tenancy.test.js` asserts those functions throw without one. A new
+repository function that skips the guard turns the suite red.
+
+**Consequences.**
+
+- Easier: adding an account is a row; the job data needs no duplication.
+- Harder: every read of personal data now needs to know who is asking, so the
+  session must carry a user id and services must thread it through.
+- Storage: SQLite allows one writer at a time (ADR-002). Fine for a handful of
+  people; the moment concurrent writes queue noticeably, this is the trigger to
+  move to Postgres — not before.
+- Deployment: the database is a file. On a host with an ephemeral filesystem it
+  is erased on every deploy. It needs a persistent volume mounted at the path in
+  `data/connection.js`, and that is a one-time configuration, not a code change.
+
+**Not built yet, and required before this is public:** self-registration and
+login wiring through services and routes, email verification, password reset,
+rate limiting on login, and a privacy policy — real personal data belonging to
+other people brings real obligations.

@@ -27,12 +27,18 @@ const path = require('path');
 const BODIES = path.join(__dirname, 'probe-bodies');
 const REPORT = path.join(__dirname, 'sniff-report.md');
 
+/**
+ * `solved: true` means the company already has a working adapter. Those are
+ * skipped when you run with no arguments, but you can still sniff one by name
+ * to re-check it after a site redesign.
+ */
 const TARGETS = {
-    microsoft: 'https://jobs.careers.microsoft.com/global/en/search?lc=Israel',
-    nvidia: 'https://jobs.nvidia.com/careers?start=0',
-    ibm: 'https://www.ibm.com/careers/search',
-    elbit: 'https://elbitsystemscareer.com/',
-    dell: 'https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers/jobs',
+    microsoft: { url: 'https://jobs.careers.microsoft.com/global/en/search?lc=Israel' },
+    ibm: { url: 'https://www.ibm.com/careers/search' },
+    dell: { url: 'https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers/jobs' },
+    apple: { url: 'https://jobs.apple.com/en-il/search?location=israel-ISR' },
+    nvidia: { url: 'https://jobs.nvidia.com/careers?start=0', solved: true },
+    elbit: { url: 'https://elbitsystemscareer.com/jobs', solved: true },
 };
 
 // Words that suggest a response actually carries job postings.
@@ -148,7 +154,27 @@ async function sniff(name, url, playwright) {
         console.log(`  navigation problem: ${err.message}`);
     }
 
+    // The DOM after JavaScript has filled it in. This is the fallback that
+    // matters: if a site fetches its jobs in a shape we can't reuse — GraphQL,
+    // a signed URL, one request per job — the rendered markup is still there to
+    // parse, exactly like the Mobileye and Google adapters do.
+    let rendered = '';
+    try {
+        rendered = await page.content();
+    } catch {
+        /* page already closed */
+    }
+
     await browser.close();
+
+    fs.mkdirSync(BODIES, { recursive: true });
+    let renderedPath = null;
+    if (rendered) {
+        renderedPath = path.join(BODIES, `sniff-${name}-rendered.html`);
+        fs.writeFileSync(renderedPath, rendered, 'utf8');
+        const hits = (rendered.match(new RegExp(JOB_WORDS.source, 'gi')) || []).length;
+        console.log(`  rendered DOM: ${rendered.length} chars, ${hits} job-ish words -> ${renderedPath}`);
+    }
 
     const scored = captured
         .map((r) => ({ ...r, ...scoreResponse(r) }))
@@ -167,9 +193,9 @@ async function sniff(name, url, playwright) {
         console.log(`       ${r.why}`);
     });
 
-    if (!winners.length) console.log('  nothing obviously job-shaped — check the saved bodies');
+    if (!winners.length) console.log('  no clean job API — the rendered DOM above is the way in');
 
-    return { name, url, total: captured.length, shown, found: winners.length > 0 };
+    return { name, url, total: captured.length, shown, renderedPath, found: winners.length > 0 };
 }
 
 function writeReport(results) {
@@ -191,8 +217,11 @@ function writeReport(results) {
 
     for (const r of results) {
         lines.push('', `## ${r.name}`, '', `Page: ${r.url}`, `XHR/fetch responses captured: ${r.total}`, '');
+        if (r.renderedPath) {
+            lines.push(`Rendered DOM (post-JavaScript): \`${path.relative(process.cwd(), r.renderedPath)}\``, '');
+        }
         if (!r.shown.length) {
-            lines.push('Nothing captured. The page may have failed to load, or it renders fully server-side.');
+            lines.push('No XHR captured — parse the rendered DOM above instead.');
             continue;
         }
         for (const s of r.shown) {
@@ -217,9 +246,13 @@ async function main() {
 
     let jobs;
     if (!arg) {
-        jobs = Object.entries(TARGETS);
+        jobs = Object.entries(TARGETS)
+            .filter(([, t]) => !t.solved)
+            .map(([name, t]) => [name, t.url]);
+        const skipped = Object.entries(TARGETS).filter(([, t]) => t.solved).map(([n]) => n);
+        if (skipped.length) console.log(`Skipping companies that already have an adapter: ${skipped.join(', ')}`);
     } else if (TARGETS[arg.toLowerCase()]) {
-        jobs = [[arg.toLowerCase(), TARGETS[arg.toLowerCase()]]];
+        jobs = [[arg.toLowerCase(), TARGETS[arg.toLowerCase()].url]];
     } else if (arg.startsWith('http')) {
         jobs = [['custom', arg]];
     } else {

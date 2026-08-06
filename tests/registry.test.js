@@ -2,9 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { availableTypes, getAdapterClass, validateConfig, buildAdapter } = require('../src/adapters');
+const { availableTypes, getAdapterClass, validateConfig, buildAdapter } = require('../server/adapters');
 
-const ADAPTER_DIR = path.join(__dirname, '..', 'src', 'adapters');
+const ADAPTER_DIR = path.join(__dirname, '..', 'server', 'adapters');
 
 // ---------------------------------------------------------------------------
 // Convention tests. These don't test a function — they test that the project's

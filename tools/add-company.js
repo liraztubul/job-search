@@ -11,8 +11,8 @@
  * fails here with a readable message instead of at 3am in the middle of a scrape.
  */
 
-const db = require('../src/db');
-const { availableTypes, getAdapterClass, validateConfig } = require('../src/adapters');
+const db = require('../server/data');
+const { availableTypes, getAdapterClass, validateConfig } = require('../server/adapters');
 
 const RESERVED = ['name', 'type', 'url'];
 
@@ -105,7 +105,7 @@ function main() {
 
     console.log(`\nAdded "${args.name}" (id ${id}) using the ${args.type} adapter.`);
     console.log(`Config: ${JSON.stringify(config)}`);
-    console.log('\nNext: node src/main.js\n');
+    console.log('\nNext: node server/main.js\n');
 }
 
 main();

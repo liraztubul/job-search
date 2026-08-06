@@ -2,11 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { parseMobileyeJobs } = require('../src/adapters/mobileyeAdapter');
-const { parseGoogleJobs } = require('../src/adapters/googleAdapter');
-const { decodeEntities, stripTags } = require('../src/adapters/htmlUtils');
-const { EMPLOYMENT_TYPES, EXPERIENCE_LEVELS } = require('../src/adapters/normalize');
-const { matches } = require('../src/matcher');
+const { parseMobileyeJobs } = require('../server/adapters/mobileyeAdapter');
+const { parseGoogleJobs } = require('../server/adapters/googleAdapter');
+const { decodeEntities, stripTags } = require('../server/adapters/htmlUtils');
+const { EMPLOYMENT_TYPES, EXPERIENCE_LEVELS } = require('../server/domain/vocabulary');
+const { matches } = require('../server/domain/matcher');
 
 /**
  * The fixtures are real markup, cut verbatim out of pages fetched on 2026-08-05

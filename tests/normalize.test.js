@@ -5,7 +5,7 @@ const {
     EXPERIENCE_LEVELS,
     normalizeEmploymentType,
     normalizeExperienceLevel,
-} = require('../src/adapters/normalize');
+} = require('../server/domain/vocabulary');
 
 /**
  * These vocabularies are what the UI dropdowns are built from. If an adapter

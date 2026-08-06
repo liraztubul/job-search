@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>מעקב הגשות — Job Tracker</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<a class="skip-link" href="#results">דלג לטבלה</a>
+
+<header class="site-header">
+  <h1>Job Tracker</h1>
+  <nav class="main-nav" aria-label="ניווט ראשי">
+    <a href="index.html">חיפוש משרות</a>
+    <a href="tracker.html" aria-current="page">מעקב הגשות</a>
+    <a href="login.html">חשבון</a>
+  </nav>
+  <span class="spacer"></span>
+  <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false">
+    <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+    <span id="theme-label">מצב לילה</span>
+  </button>
+</header>
+
+<main>
+  <h2 class="visually-hidden">סיכום ההגשות</h2>
+  <ul class="summary" id="summary" aria-label="סיכום לפי סטטוס"></ul>
+
+  <div class="card">
+    <div class="field" style="max-width:16rem">
+      <label for="f-status">הצג לפי סטטוס</label>
+      <select id="f-status"><option value="">כל הסטטוסים</option></select>
+    </div>
+  </div>
+
+  <div class="results-head">
+    <p class="results-count" id="results-count" role="status" aria-live="polite" aria-atomic="true">טוען…</p>
+    <p class="results-note" id="results-note"></p>
+  </div>
+
+  <div id="results" tabindex="-1"></div>
+</main>
+
+
+<script src="js/ui.js"></script>
+<script src="js/tracker.js"></script>
+</body>
+</html>

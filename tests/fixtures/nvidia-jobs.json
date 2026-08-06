@@ -1,0 +1,73 @@
+{
+  "count": 2586,
+  "positions": [
+    {
+      "id": 893396352447,
+      "displayJobId": "JR2021137",
+      "atsJobId": "JR2021137",
+      "name": "Senior ASIC Verification Engineer - Networking Chip Design",
+      "locations": [
+        "China, Shanghai"
+      ],
+      "standardizedLocations": [
+        "Shanghai, Shanghai, CN"
+      ],
+      "postedTs": 1785888000,
+      "department": "Engineer, ASIC",
+      "workLocationOption": "onsite",
+      "positionUrl": "/careers/job/893396352447"
+    },
+    {
+      "id": 893396868930,
+      "displayJobId": "JR2022200",
+      "atsJobId": "JR2022200",
+      "name": "Senior Firmware Engineer",
+      "locations": [
+        "Israel, Yokneam",
+        "Israel, Tel Aviv"
+      ],
+      "standardizedLocations": [
+        "Yokne'am Illit, North District, IL",
+        "Tel Aviv-Yafo, Tel Aviv District, IL"
+      ],
+      "postedTs": 1785888000,
+      "department": "Engineer, Sys SW",
+      "workLocationOption": "onsite",
+      "positionUrl": "/careers/job/893396868930"
+    },
+    {
+      "id": 893396868956,
+      "displayJobId": "JR2022515",
+      "atsJobId": "JR2022515",
+      "name": "Senior Firmware Core Engineer",
+      "locations": [
+        "Israel, Yokneam"
+      ],
+      "standardizedLocations": [
+        "Yokne'am Illit, North District, IL"
+      ],
+      "postedTs": 1785888000,
+      "department": "Engineer, Sys SW",
+      "workLocationOption": "onsite",
+      "positionUrl": "/careers/job/893396868956"
+    },
+    {
+      "id": 893396867538,
+      "displayJobId": "JR2022708",
+      "atsJobId": "JR2022708",
+      "name": "Senior Product Manager - Enterprise Reference Architecture",
+      "locations": [
+        "US, CA, Santa Clara",
+        "US, TX, Austin"
+      ],
+      "standardizedLocations": [
+        "Santa Clara, CA, US",
+        "Austin, TX, US"
+      ],
+      "postedTs": 1785888000,
+      "department": "Product Management",
+      "workLocationOption": "onsite",
+      "positionUrl": "/careers/job/893396867538"
+    }
+  ]
+}

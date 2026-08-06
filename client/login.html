@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>כניסה — Job Tracker</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>Job Tracker</h1>
+</header>
+
+<main style="max-width:26rem">
+  <div class="empty" id="accounts-off" hidden style="margin-bottom:1rem;text-align:start">
+    <p style="margin-top:0"><strong>חשבונות כבויים כרגע.</strong></p>
+    <p>השרת רץ בלי <code>JT_SESSION_SECRET</code>, אז אין למה להתחבר והכל רץ כחשבון יחיד.
+       זו תצוגה מקדימה של הדף בלבד.</p>
+    <p style="margin-bottom:0">כדי להדליק, עצרי את השרת והריצי:</p>
+    <p><code>node tools/set-password.js "סיסמה ארוכה"</code></p>
+    <p style="margin-bottom:0">ואז הפעילי מחדש עם המשתנים שהוא הדפיס.</p>
+    <p style="margin-bottom:0"><em>אפשר לעבור בין כניסה להרשמה בכפתור למטה כדי לראות את שני המסכים.</em></p>
+  </div>
+
+  <form class="card" id="login-form">
+    <h2 style="margin-top:0" id="form-title">כניסה</h2>
+    <p class="results-note" id="hint">כל חשבון רואה רק את מעקב ההגשות שלו.</p>
+
+    <div class="field" style="margin-top:1rem">
+      <label for="email">אימייל</label>
+      <input type="email" id="email" name="email" autocomplete="email" required>
+    </div>
+
+    <div class="field" style="margin-top:.75rem">
+      <label for="password">סיסמה</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+
+    <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
+
+    <button type="submit" class="btn primary" style="width:100%" id="submit">התחברי</button>
+  </form>
+
+  <p style="text-align:center;margin-top:1rem">
+    <button type="button" class="btn" id="toggle-mode" style="width:100%">אין לי חשבון — הרשמה</button>
+  </p>
+</main>
+
+<script src="js/ui.js"></script>
+<script>
+'use strict';
+
+initUI();
+
+// Only bounce someone who is genuinely already signed in. When accounts are
+// switched off we STAY here and say so — a page that redirects away the moment
+// you open it is a page you can never look at, which is how this one went
+// missing in the first place.
+fetch('/api/session')
+  .then((r) => r.json())
+  .then((session) => {
+    if (session.authRequired && session.authenticated) {
+      location.replace('index.html');
+      return;
+    }
+    if (!session.authRequired) {
+      $('accounts-off').hidden = false;
+      // Only the submit is blocked — the server would reject it anyway. The
+      // toggle stays live so both forms are still viewable, which is the whole
+      // point of showing this page when accounts are off.
+      $('submit').disabled = true;
+      $('submit').title = 'חשבונות כבויים — ראי את ההסבר למעלה';
+    }
+  })
+  .catch(() => {});
+
+let mode = 'login';
+
+$('toggle-mode').addEventListener('click', () => {
+  mode = mode === 'login' ? 'register' : 'login';
+  const registering = mode === 'register';
+
+  $('form-title').textContent = registering ? 'הרשמה' : 'כניסה';
+  $('submit').textContent = registering ? 'צרי חשבון' : 'התחברי';
+  $('toggle-mode').textContent = registering ? 'כבר יש לי חשבון — כניסה' : 'אין לי חשבון — הרשמה';
+  $('password').autocomplete = registering ? 'new-password' : 'current-password';
+  $('hint').textContent = registering
+    ? 'לפחות 10 תווים. אין כרגע שחזור סיסמה, אז בחרי משהו שתזכרי.'
+    : 'כל חשבון רואה רק את מעקב ההגשות שלו.';
+  $('error').textContent = '';
+});
+
+$('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  $('error').textContent = '';
+
+  const response = await fetch(mode === 'register' ? '/api/register' : '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: $('email').value, password: $('password').value }),
+  }).catch(() => null);
+
+  if (response && response.ok) {
+    location.replace('index.html');
+    return;
+  }
+
+  if (!response) {
+    $('error').textContent = 'אין חיבור לשרת.';
+    return;
+  }
+
+  // The server's wording is the honest one — it deliberately does not say
+  // whether the email exists.
+  const body = await response.json().catch(() => ({}));
+  $('error').textContent = body.error || 'משהו השתבש.';
+  $('password').value = '';
+  $('password').focus();
+});
+</script>
+</body>
+</html>

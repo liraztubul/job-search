@@ -2,14 +2,15 @@
   "name": "job-tracker",
   "version": "1.0.0",
   "description": "Watches company career pages and notifies on new matching jobs",
-  "main": "src/main.js",
+  "main": "server/main.js",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node src/main.js",
-    "seed": "node src/seed.js",
+    "seed": "node server/seed.js",
+    "check": "node server/main.js",
+    "start": "node server/web/server.js",
     "add": "node tools/add-company.js",
     "probe": "node tools/probe.js"
   },
@@ -18,5 +19,8 @@
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^13.0.2"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

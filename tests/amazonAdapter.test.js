@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { mapAmazonJob } = require('../src/adapters/amazonAdapter');
+const { mapAmazonJob } = require('../server/adapters/amazonAdapter');
 
 /**
  * Captured verbatim from https://www.amazon.jobs/search.json?country=ISR
  * on 2026-08-03. Trimmed to the fields the mapper reads — nothing renamed.
  *
  * If Amazon changes their shape, these tests keep passing (they test the mapper,
- * not the network) but `node src/main.js` will throw. That split is deliberate:
+ * not the network) but `node server/main.js` will throw. That split is deliberate:
  * unit tests protect the mapping logic, the live run protects the contract.
  */
 const REAL_JOB = {
@@ -71,7 +71,7 @@ test('location falls back through normalized -> location -> city', () => {
 test('a Haifa job survives a Haifa location_filter', () => {
     // The mapper and the matcher have to agree on what a location looks like.
     // This is the seam where they meet, so it gets a test.
-    const { matches } = require('../src/matcher');
+    const { matches } = require('../server/domain/matcher');
     const job = mapAmazonJob(REAL_JOB);
     assert.equal(matches(job, { keywords: 'supply,chain', location_filter: 'Haifa' }), true);
 });

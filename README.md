@@ -1,65 +1,97 @@
 # Job Tracker — Company Career Page Watcher
 
-Monitors specific company career pages directly (no LinkedIn, no delay), diffs
-against the last known state, matches new postings against saved search
-profiles, and (eventually) sends a notification.
+Watches company career pages directly (no LinkedIn, no delay), diffs against the
+last known state, and serves a local web UI for filtering the results and
+tracking which jobs you've applied to.
+
+Nine adapters: **Amazon**, **Apple**, **Google**, **Mobileye**, **Elbit Systems**,
+**IBM**, **NVIDIA** (Eightfold), **Dell** (Oracle HCM) and **Comeet**.
+
+## Quick start
+
+```bash
+npm install
+node server/seed.js                 # creates jobtracker.db with Amazon Israel
+node server/main.js                 # one check cycle — collects jobs
+node server/web/server.js           # then open http://localhost:3000
+```
+
+Add more companies without writing code:
+
+```bash
+node tools/add-company.js                                    # what's available
+node tools/add-company.js --name "Mobileye" --type mobileye
+node tools/add-company.js --name "Google Israel" --type google --location "Telavivhaifa Israel"
+```
+
+## Layout
+
+```
+server/          Node only — never reaches the browser
+  adapters/      one file per career platform, self-registering
+  domain/        pure rules: matcher, vocabularies, locations
+  data/          SQL only, one file per table group (+ schema.sql)
+  services/      business rules — the layer that combines things
+  web/           HTTP: server, routes, middleware (static files, auth)
+  main.js        run one check cycle
+client/          browser only — never require()s anything
+  index.html     job search     tracker.html   applications
+  login.html     shown only when auth is configured
+  css/ js/
+tools/           developer scripts
+tests/           node:test — no network, no DB
+```
+
+Dependencies point one way: `web -> services -> data -> domain`. `domain/`
+imports nothing from the project; nothing imports `web/`. Server and client meet
+at the JSON API and nowhere else.
 
 ## How it works
 
 ```
-watched_companies --> adapter.getCurrentJobs() --> diff vs job_snapshots --> matcher --> notify
+watched_companies → adapter.getCurrentJobs() → diff vs job_snapshots → matcher → UI
 ```
 
-Each company has an `adapter_type` (e.g. `comeet`). The rest of the code never
-needs to know how a specific site is scraped — it just calls
-`adapter.getCurrentJobs()` and gets back a clean list. Adding a new company
-platform later = adding one new file in `src/adapters/`, nothing else changes.
+Each company row has an `adapter_type`. Nothing outside `server/adapters/` knows
+how a given site is scraped — it calls `getCurrentJobs()` and gets a clean list
+of `RawJob`. Supporting a new platform is one new file; nothing else changes.
 
-## Structure
+Design decisions and their trade-offs: **ARCHITECTURE.md**.
 
-```
-schema.sql              SQLite schema (companies, job snapshots, profiles, notifications)
-src/adapters/JobSource.js    the interface every adapter implements
-src/adapters/comeetAdapter.js   works for any company using Comeet's career platform
-src/db.js               all DB reads/writes
-src/matcher.js           does a job fit a saved search profile?
-src/main.js              one full check cycle — run this on a schedule (cron)
-src/seed.js              inserts one example company + one search profile
-```
-
-## Running it
+## Adding a company whose platform has no adapter
 
 ```bash
-npm install
-node src/seed.js     # one-time: creates the DB + inserts example data
-node src/main.js     # runs one check cycle
+node tools/probe.js "<url>"     # is there a JSON endpoint behind the page?
+node tools/probe-all.js         # probe every pending company at once
+node tools/sniff.js elbit       # for SPAs: real browser, captures the XHRs
 ```
 
-Right now `seed.js` inserts a placeholder company with `companyUid: 'REPLACE_ME'`
-— `main.js` will fail on it until you swap in a real one.
+`probe.js` prints the field names of the first job it finds, which is exactly
+what a new adapter's mapping needs. `sniff.js` needs Playwright:
 
-## Your next step (this is the part I can't do without you)
+```bash
+npm install --save-dev playwright && npx playwright install chromium
+```
 
-I don't have a browser, so I can't inspect Rafael/Elbit's actual career page
-myself. To find out what platform they run on and get real data flowing:
+Still open: Microsoft, and Rafael — which sits behind Reblaze bot protection, so
+use their email job alerts rather than scraping it.
 
-1. Open the company's career page in Chrome.
-2. Press F12 → **Network** tab.
-3. Refresh the page, then filter by `job` or `position` or `career`.
-4. Click any request of type **Fetch/XHR** (not JS/CSS/image) and check the
-   **Response** tab for JSON with job titles in it.
-5. Send me that URL (and a snippet of the JSON shape) — I'll write the adapter
-   for whatever platform it turns out to be (Comeet, Greenhouse, SuccessFactors,
-   or fully custom).
+## Running it beyond this machine
 
-If it turns out to be a fully custom system (common for large Israeli
-companies like Rafael/Elbit), the adapter will do real HTML parsing instead of
-calling a clean JSON endpoint — more fragile, but still very doable; we'll
-just need to look at the actual page structure together.
+The server has no login on localhost, on purpose. To reach it from a phone:
 
-## Not built yet (on purpose — MVP first)
+```bash
+node tools/set-password.js "a long password"   # prints two lines for .env
+HOST=0.0.0.0 JT_BEHIND_HTTPS=1 node server/web/server.js
+```
 
-- Real notification channel (Telegram bot / email) — currently just logs to console
-- Scheduling (cron / node-cron) — currently one manual run
-- Frontend to manage companies/profiles — currently seeded directly in DB
-- Fuzzy/embedding-based matching — currently plain keyword substring match
+Put a TLS terminator in front (Fly, Railway, Caddy, or a Cloudflare Tunnel).
+Don't do TLS inside Node. Details in `server/web/middleware/auth.js`.
+
+## Not built yet
+
+- Notifications — matches are printed to the console; the outbox design is in
+  ARCHITECTURE.md §4.5
+- Scheduling — one manual run, no cron yet
+- The sanity gate (§4.2) and closure detection (§4.3)
+- `ComeetAdapter` has never been checked against a live response

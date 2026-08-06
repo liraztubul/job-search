@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { matches } = require('../src/matcher');
+const { matches } = require('../server/domain/matcher');
 
 // Helpers so each test reads as one line of intent, not object soup.
 const job = (title, location = 'Haifa') => ({ title, location });

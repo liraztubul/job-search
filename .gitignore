@@ -9,3 +9,6 @@ tools/probe-output.txt
 tools/probe-bodies/
 tools/probe-report.md
 tools/sniff-report.md
+
+# your own manual job lists — personal, like the DB
+data/manual/*.json
