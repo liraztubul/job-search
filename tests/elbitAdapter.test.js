@@ -120,14 +120,21 @@ test('every job emits the keys the schema stores', () => {
 // Apply URL
 // ---------------------------------------------------------------------------
 
-test('falls back to the listing page rather than guessing a job URL', () => {
-    // Elbit opens jobs through a client-side router and publishes no per-job
-    // address we could verify. A plausible-looking 404 would be worse than a
-    // link that definitely works.
-    assert.equal(mapElbitJob(byId(20904)).applyUrl, 'https://elbitsystemscareer.com/jobs');
+test('links straight to the job by default — the real per-job route, confirmed 2026-08-06', () => {
+    // Elbit opens jobs through a client-side router with no visible <a href>,
+    // but /job/?jid=<jobId> is a real, shareable route (loading it fresh, not
+    // via in-app navigation, lands on the right job) — verified by clicking a
+    // card and watching where the router actually went.
+    assert.equal(mapElbitJob(byId(20904)).applyUrl, 'https://elbitsystemscareer.com/job/?jid=20904');
 });
 
-test('uses a per-job template once one is configured', () => {
+test('an explicit empty template falls back to the listing page instead', () => {
+    // The escape hatch for when the site's routing changes again and the
+    // default starts 404ing.
+    assert.equal(mapElbitJob(byId(20904), '').applyUrl, 'https://elbitsystemscareer.com/jobs');
+});
+
+test('a configured template overrides the default', () => {
     const job = mapElbitJob(byId(20904), 'https://elbitsystemscareer.com/jobs/{jobId}');
     assert.equal(job.applyUrl, 'https://elbitsystemscareer.com/jobs/20904');
 });

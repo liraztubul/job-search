@@ -17,22 +17,32 @@ const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain
  *
  * The `t=` parameter is a cache-buster, not auth. We send one for the same
  * reason their own site does: this is a static file behind a CDN.
+ *
+ * Per-job pages exist but aren't linked anywhere in the DOM — cards open them
+ * through the client-side router with no visible <a href>, which is why an
+ * earlier pass here gave up and linked to the listing instead. Clicking a
+ * card and watching where the router actually lands (2026-08-06) found it:
+ *
+ *   https://elbitsystemscareer.com/job/?jid=<jobId>
+ *
+ * Confirmed by loading that URL fresh (not via in-app navigation) and getting
+ * the right job back — it's a real, shareable route, not session state.
  */
 
 const ENDPOINT = 'https://elbitsystemscareer.com/cron/jobs.json';
 const LISTING_URL = 'https://elbitsystemscareer.com/jobs';
+const JOB_URL_TEMPLATE = 'https://elbitsystemscareer.com/job/?jid={jobId}';
 
 /**
  * Pure mapping: one raw Elbit job -> RawJob. Exported for testing without
  * touching the network.
  *
  * @param {object} raw
- * @param {string|null} jobUrlTemplate  e.g. 'https://.../jobs/{jobId}'. Left
- *   null by default: the site opens jobs through its client-side router and
- *   publishes no per-job URL we could verify, so we link to the listing rather
- *   than invent an address that might 404.
+ * @param {string|null} jobUrlTemplate  override for JOB_URL_TEMPLATE, e.g. if
+ *   the site's routing changes again. Pass null explicitly to fall back to
+ *   the listing page instead of guessing at a broken pattern.
  */
-function mapElbitJob(raw, jobUrlTemplate = null) {
+function mapElbitJob(raw, jobUrlTemplate = JOB_URL_TEMPLATE) {
     const externalId = String(raw.jobId ?? '');
     if (!externalId) {
         throw new Error(`Elbit job has no jobId: ${JSON.stringify(raw).slice(0, 120)}`);
@@ -67,17 +77,18 @@ function mapElbitJob(raw, jobUrlTemplate = null) {
 class ElbitAdapter extends JobSource {
     static type = 'elbit';
     static describe = {
-        help: 'Elbit Systems. Static JSON behind their Next.js site. Verified 2026-08-05.',
+        help: 'Elbit Systems. Static JSON behind their Next.js site. Verified 2026-08-06.',
         required: {},
         optional: {
             jobUrlTemplate:
-                "per-job link pattern once you know it, e.g. 'https://elbitsystemscareer.com/jobs/{jobId}'",
+                `override for the per-job link pattern (default '${JOB_URL_TEMPLATE}'); pass '' to link ` +
+                'to the listing page instead, e.g. if the site\'s routing changes and breaks the default',
         },
     };
 
     constructor(config = {}) {
         super();
-        this.jobUrlTemplate = config.jobUrlTemplate ?? null;
+        this.jobUrlTemplate = config.jobUrlTemplate ?? JOB_URL_TEMPLATE;
     }
 
     async getCurrentJobs() {

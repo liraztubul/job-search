@@ -13,6 +13,7 @@
   --interviewing-bg:#eee0fc; --interviewing-fg:#5b21a8;
   --offer-bg:#d6f5e0; --offer-fg:#0d5b2c;
   --rejected-bg:#fde0e0; --rejected-fg:#96181b;
+  --tag-accent-bg:#e4eaff; --tag-accent-fg:#173da8;
   --font-stack:system-ui,-apple-system,"Segoe UI",Rubik,Arial,sans-serif;
   --line-height:1.55; --letter-spacing:normal;
 }
@@ -25,6 +26,7 @@
   --interviewing-bg:#3a2260; --interviewing-fg:#dcc4ff;
   --offer-bg:#114a2a; --offer-fg:#9ef0bd;
   --rejected-bg:#5a1c1f; --rejected-fg:#ffc0c0;
+  --tag-accent-bg:#1e2c4d; --tag-accent-fg:#adc2ff;
 }
 /* Maximum-contrast mode for low vision. Deliberately blunt: pure black on
    pure white (21:1), no shadows, thick borders, no decorative grey. */
@@ -37,6 +39,7 @@
   --interviewing-bg:#ffffff; --interviewing-fg:#4b0082;
   --offer-bg:#ffffff; --offer-fg:#00532b;
   --rejected-bg:#ffffff; --rejected-fg:#8b0000;
+  --tag-accent-bg:#ffffff; --tag-accent-fg:#0000cc;
 }
 [data-contrast="high"] .tag,
 [data-contrast="high"] .status-badge { border:2px solid currentColor; }
@@ -146,9 +149,20 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
 .search-row .field { flex:1; }
 
 .filters .actions { display:flex; align-items:center; gap:1.13rem; margin-top:1rem; flex-wrap:wrap; }
-.checkbox { display:flex; align-items:center; gap:.56rem; }
-.checkbox input { width:1.19rem; height:1.19rem; accent-color:var(--accent); margin:0; }
-.checkbox label { font-size:.94rem; color:var(--text); }
+
+/* ------------------------------ company combobox ---------------------------- */
+.combobox { position:relative; }
+.combobox-listbox {
+  position:absolute; top:calc(100% + .25rem); inset-inline:0; z-index:50;
+  max-height:16rem; overflow-y:auto; margin:0; padding:.31rem; list-style:none;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:10px;
+  box-shadow:var(--shadow);
+}
+.combobox-listbox[hidden] { display:none; }
+.combobox-option { padding:.5rem .69rem; border-radius:6px; cursor:pointer; font-size:.94rem; }
+.combobox-option:hover,.combobox-option.active { background:var(--surface-2); }
+.combobox-option[aria-selected="true"] { color:var(--accent); font-weight:600; }
+.combobox-empty { padding:.5rem .69rem; color:var(--muted); font-size:.88rem; }
 
 .btn {
   min-height:2.63rem; padding:0 1.13rem; font:inherit; font-size:.94rem; cursor:pointer;
@@ -172,7 +186,15 @@ ul.jobs { list-style:none; margin:0; padding:0; display:grid; gap:.75rem; }
   padding:1rem 1.13rem; box-shadow:var(--shadow);
   display:grid; gap:.63rem; grid-template-columns:1fr auto; align-items:start;
 }
-.job:hover { border-color:var(--border-strong); }
+.job {
+  transition:box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.job:hover {
+  border-color:var(--border-strong); transform:translateY(-1px);
+  box-shadow:0 6px 16px rgba(16,24,40,.1),0 2px 6px rgba(16,24,40,.08);
+}
+[data-theme="dark"] .job:hover { box-shadow:0 6px 16px rgba(0,0,0,.4); }
+[data-contrast="high"] .job:hover { transform:none; box-shadow:none; }
 .job.is-closed { opacity:.62; }
 
 .job-main { min-width:0; }
@@ -191,6 +213,16 @@ ul.tags { list-style:none; display:flex; flex-wrap:wrap; gap:.44rem; margin:.56r
   background:var(--surface-2); color:var(--muted); border:1px solid var(--border);
 }
 .tag.closed { background:var(--rejected-bg); color:var(--rejected-fg); }
+
+/* The two facts worth scanning for first — location and seniority — get a
+   light accent instead of the same flat grey as every other detail tag. */
+.tag.tag-highlight {
+  background:var(--tag-accent-bg); color:var(--tag-accent-fg);
+  border-color:var(--tag-accent-bg); font-weight:600;
+}
+.tag.tag-location { display:inline-flex; align-items:center; gap:.31rem; }
+.tag-icon { display:inline-flex; width:.88rem; height:.88rem; flex:none; }
+.tag-icon svg { width:100%; height:100%; }
 
 .job-status { display:flex; flex-direction:column; gap:.38rem; min-width:10rem; }
 .job-status label { font-size:.81rem; color:var(--muted); font-weight:550; }

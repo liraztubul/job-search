@@ -16,9 +16,137 @@ function fillSelect(select, items, labels) {
   select.value = previous;
 }
 
+// ------------------------------ company combobox -----------------------------
+// A real listbox instead of a plain <select> — with 15+ companies, a native
+// dropdown is a scroll-and-hunt exercise (poor "recognition rather than
+// recall"). This one opens to the full list on click, like a normal picker,
+// and narrows it live as you type — both, not one or the other.
+let companies = []; // [{id, name, count}]
+let selectedCompanyId = '';
+let activeOptionIndex = -1;
+
+const companyLabel = (c) => `${c.name} (${c.count})`;
+const companyOptions = () => [...$('f-company-listbox').querySelectorAll('[role=option]')];
+
+function matchingCompanies(query) {
+  // Prefix match, not substring — typing "e" means "starts with e" (Elbit,
+  // Eightfold-ish names), not "contains an e anywhere" (which would keep half
+  // the list on screen and defeat the point of narrowing it down). toLowerCase()
+  // on both sides makes this caps-lock-proof: "E" and "e" compare equal either way.
+  const q = query.trim().toLowerCase();
+  return q ? companies.filter((c) => c.name.toLowerCase().startsWith(q)) : companies;
+}
+
+function renderCompanyOptions(query) {
+  const listbox = $('f-company-listbox');
+  listbox.replaceChildren();
+  activeOptionIndex = -1;
+
+  const allOption = el('li', { className: 'combobox-option', textContent: 'כל החברות' });
+  allOption.id = 'f-company-option-all';
+  allOption.setAttribute('role', 'option');
+  allOption.setAttribute('aria-selected', String(selectedCompanyId === ''));
+  allOption.dataset.id = '';
+  listbox.append(allOption);
+
+  const items = matchingCompanies(query);
+  if (query.trim() && items.length === 0) {
+    listbox.append(el('li', { className: 'combobox-empty', textContent: 'לא נמצאה חברה תואמת' }));
+  }
+  for (const c of items) {
+    const opt = el('li', { className: 'combobox-option', textContent: companyLabel(c) });
+    opt.id = `f-company-option-${c.id}`;
+    opt.setAttribute('role', 'option');
+    opt.setAttribute('aria-selected', String(String(c.id) === selectedCompanyId));
+    opt.dataset.id = String(c.id);
+    listbox.append(opt);
+  }
+}
+
+function openCompanyListbox() {
+  renderCompanyOptions($('f-company').value);
+  $('f-company-listbox').hidden = false;
+  $('f-company').setAttribute('aria-expanded', 'true');
+}
+
+function closeCompanyListbox() {
+  $('f-company-listbox').hidden = true;
+  $('f-company').setAttribute('aria-expanded', 'false');
+  $('f-company').removeAttribute('aria-activedescendant');
+  activeOptionIndex = -1;
+}
+
+function isCompanyListboxOpen() {
+  return !$('f-company-listbox').hidden;
+}
+
+function setActiveCompanyOption(index) {
+  const options = companyOptions();
+  for (const o of options) o.classList.remove('active');
+  if (index < 0 || index >= options.length) {
+    activeOptionIndex = -1;
+    $('f-company').removeAttribute('aria-activedescendant');
+    return;
+  }
+  activeOptionIndex = index;
+  options[index].classList.add('active');
+  options[index].scrollIntoView({ block: 'nearest' });
+  $('f-company').setAttribute('aria-activedescendant', options[index].id);
+}
+
+function selectCompany(id, label) {
+  selectedCompanyId = id || '';
+  $('f-company').value = id ? label : '';
+  closeCompanyListbox();
+  load();
+}
+
+function initCompanyCombobox() {
+  const input = $('f-company');
+  const listbox = $('f-company-listbox');
+
+  input.addEventListener('focus', openCompanyListbox);
+  input.addEventListener('input', () => {
+    // Typing invalidates whatever was picked before, until they choose again —
+    // a half-typed name is not a company id the API can filter on.
+    selectedCompanyId = '';
+    renderCompanyOptions(input.value);
+    if (!isCompanyListboxOpen()) openCompanyListbox();
+  });
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (!isCompanyListboxOpen()) return openCompanyListbox();
+      setActiveCompanyOption(Math.min(activeOptionIndex + 1, companyOptions().length - 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (isCompanyListboxOpen()) setActiveCompanyOption(Math.max(activeOptionIndex - 1, 0));
+    } else if (event.key === 'Enter') {
+      if (isCompanyListboxOpen() && activeOptionIndex >= 0) {
+        event.preventDefault();
+        const opt = companyOptions()[activeOptionIndex];
+        selectCompany(opt.dataset.id, opt.textContent);
+      }
+    } else if (event.key === 'Escape') {
+      if (isCompanyListboxOpen()) { event.preventDefault(); closeCompanyListbox(); }
+    }
+  });
+
+  listbox.addEventListener('click', (event) => {
+    const opt = event.target.closest('[role=option]');
+    if (!opt) return;
+    selectCompany(opt.dataset.id, opt.dataset.id ? opt.textContent : '');
+  });
+
+  document.addEventListener('click', (event) => {
+    if (isCompanyListboxOpen() && !$('f-company-combobox').contains(event.target)) closeCompanyListbox();
+  });
+}
+
 async function loadMeta() {
   meta = await fetchJson('/api/meta');
-  fillSelect($('f-company'), meta.companies.map((c) => ({ value: c.id, name: c.name, count: c.count })));
+  companies = meta.companies;
   fillSelect($('f-experience'), meta.experienceLevels, HEBREW.experience);
   fillSelect($('f-employment'), meta.employmentTypes, HEBREW.employment);
   fillSelect($('f-location'), meta.locations, HEBREW.location);
@@ -29,14 +157,22 @@ function buildQuery() {
   const params = new URLSearchParams();
   const add = (key, value) => { if (value) params.set(key, value); };
   add('q', $('f-q').value.trim());
-  add('company', $('f-company').value);
+  add('company', selectedCompanyId);
   add('experience', $('f-experience').value);
   add('employment', $('f-employment').value);
   add('location', $('f-location').value);
   add('status', $('f-status').value);
-  if ($('f-open').checked) params.set('open', '1');
   return params;
 }
+
+// A small pin, built once and cloned per card rather than re-parsed from a
+// string every time — el()'s innerHTML only ever sees this fixed constant,
+// never job data, so there's no injection risk in giving it raw markup.
+const LOCATION_PIN = el('span', {
+  className: 'tag-icon',
+  innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+    + '<path d="M12 21s-7-6.7-7-11a7 7 0 0 1 14 0c0 4.3-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+});
 
 function jobCard(job) {
   const titleId = `job-${job.id}-title`;
@@ -49,22 +185,22 @@ function jobCard(job) {
   link.append(el('span', { className: 'visually-hidden', textContent: ' (נפתח בלשונית חדשה באתר החברה)' }));
 
   // Named jobMeta, not meta — a local `meta` would shadow the module-level
-  // `meta` and quietly break the status dropdown below.
-  const displayJobNumber = job.jobCode || job.externalId;
-  const jobNumberLabel = displayJobNumber ? ` · משרה מס׳ ` : '';
-
-  const jobMeta = el('p', { className: 'job-meta' },
-    el('strong', { textContent: job.company }),
-    job.location ? ` · ${job.location}` : '',
-    jobNumberLabel,
-    displayJobNumber ? el('span', { className: 'mono ltr', textContent: displayJobNumber }) : null);
+  // `meta` and quietly break the status dropdown below. The job number lived
+  // here too once; it's dropped from the browsing view (nobody needs a
+  // requisition id while skimming search results) and kept where it's
+  // actually useful — the tracker table, once you're applying for real.
+  const jobMeta = el('p', { className: 'job-meta' }, el('strong', { textContent: job.company }));
 
   const tags = el('ul', { className: 'tags' });
-  const addTag = (text, cls) => tags.append(el('li', { className: cls || 'tag', textContent: text }));
-  if (job.experienceLevel) addTag(HEBREW.experience[job.experienceLevel] || job.experienceLevel);
-  if (job.employmentType) addTag(HEBREW.employment[job.employmentType] || job.employmentType);
-  if (job.department) addTag(job.department);
-  if (!job.isStillOpen) addTag('נסגרה', 'tag closed');
+  const addTag = (cls, ...content) => tags.append(el('li', { className: cls }, ...content));
+  // Location and experience are the two facts someone scans a results list
+  // for first, so they lead the tag row with an accent that sets them apart
+  // from the plainer employment/department detail tags after them.
+  if (job.location) addTag('tag tag-highlight tag-location', LOCATION_PIN.cloneNode(true), job.location);
+  if (job.experienceLevel) addTag('tag tag-highlight', HEBREW.experience[job.experienceLevel] || job.experienceLevel);
+  if (job.employmentType) addTag('tag', HEBREW.employment[job.employmentType] || job.employmentType);
+  if (job.department) addTag('tag', job.department);
+  if (!job.isStillOpen) addTag('tag closed', 'נסגרה');
 
   const main = el('div', { className: 'job-main' },
     el('h3', { className: 'job-title', id: titleId }, link), jobMeta,
@@ -139,20 +275,23 @@ async function load() {
   $('results').replaceChildren(list);
 }
 
-// Dropdowns filter instantly; free text waits for the search button or Enter,
-// so results don't shift under you while you're still typing.
-for (const id of ['f-company', 'f-experience', 'f-employment', 'f-location', 'f-status', 'f-open']) {
+// Dropdowns filter instantly (the company combobox does too — selectCompany()
+// calls load() itself); free text waits for the search button or Enter, so
+// results don't shift under you while you're still typing.
+for (const id of ['f-experience', 'f-employment', 'f-location', 'f-status']) {
   $(id).addEventListener('change', load);
 }
 $('filters').addEventListener('submit', (event) => { event.preventDefault(); load(); });
 $('reset').addEventListener('click', () => {
   $('f-q').value = '';
-  for (const id of ['f-company', 'f-experience', 'f-employment', 'f-location', 'f-status']) $(id).value = '';
-  $('f-open').checked = true;
+  for (const id of ['f-experience', 'f-employment', 'f-location', 'f-status']) $(id).value = '';
+  selectedCompanyId = '';
+  $('f-company').value = '';
   load();
   announce('הסינון נוקה.');
 });
 
+initCompanyCombobox();
 initUI();
 // If the meta call fails, load() renders the explanation panel — so the page
 // never sits on "טוען…" without saying why.

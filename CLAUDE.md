@@ -166,12 +166,32 @@ Guessing at field names is the main way this project wastes an hour.
 Working end to end for Amazon, Google, Mobileye, Elbit and NVIDIA. Notifications are still
 console-only — `notification_queue` from ARCHITECTURE.md §4.5 is not built yet.
 `ComeetAdapter` remains unverified against a live response.
-Nine adapters registered: amazon, apple, comeet, eightfold, elbit, google, ibm,
-mobileye, oracle-hcm.
+Twelve adapters registered: amazon, apple, ashby, checkpoint, comeet, eightfold,
+elbit, google, ibm, mobileye, oracle-hcm, workday.
+Ashby and Workday are real third-party platforms (Ashby's public posting API
+needs no auth at all; Workday needs a two-step facet lookup to filter by
+country — see workdayAdapter.js). checkpoint is bespoke to Check Point's own
+Solr-backed PHP site.
+Qualcomm is another Eightfold tenant (careers.qualcomm.com, same shape as
+Microsoft/NVIDIA). Intel is on Workday (intel.wd1.myworkdayjobs.com).
+monday.com is on Ashby (board name is "monday.com", not the shorter "monday"
+their own jobs.ashbyhq.com page uses — probe before assuming).
 Rafael is behind Reblaze bot protection, and AllJobs (checked as an indirect
 route to the same postings) is behind hCaptcha. Both are security products
 saying no. Rafael is tracked through the `manual` adapter instead —
 `node tools/add-job.js`. Don't automate either site.
+Wix is a dead end too, but not from bot protection: careers.wix.com's job
+data only exists behind a per-page-load signed session token (Wix's own
+"wixcode-pub" instance JWT), with no postings in the server-rendered HTML and
+no public API. Getting it would mean running a real browser at scrape time,
+which breaks the project's "only dependency is better-sqlite3" rule. Not
+added.
+CyberArk was acquired by Palo Alto Networks since this file was last
+updated — cyberark.com/careers now redirects straight to a PANW marketing
+page. Tracked as "Palo Alto Networks Israel" (Workday, same tenant as
+everyone else at PANW) — there's no way to isolate just the former-CyberArk
+roles, but their titles/locations still say "CyberArk" (e.g. "(EPM-Idira)",
+"Office - Israel - CyberArk Petach Tikva"), so they're easy to spot in the feed.
 Checked AllJobs.co.il as an indirect route to Rafael's postings too: its guest
 search is also bot-gated (hCaptcha + Reblaze-family bot management via
 Perfdrive, loaded by its own `ShowSearchResultGuestBlocker.js`). Not a way in

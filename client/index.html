@@ -44,9 +44,16 @@
       </div>
 
       <div class="grid">
-        <div class="field">
+        <div class="field combobox" id="f-company-combobox">
           <label for="f-company">חברה</label>
-          <select id="f-company"><option value="">כל החברות</option></select>
+          <input type="text" id="f-company" role="combobox" aria-expanded="false" aria-haspopup="listbox"
+                 aria-controls="f-company-listbox" aria-autocomplete="list" autocomplete="off"
+                 placeholder="כל החברות" aria-describedby="f-company-hint">
+          <ul id="f-company-listbox" class="combobox-listbox" role="listbox" aria-label="חברות" hidden></ul>
+          <span id="f-company-hint" class="visually-hidden">
+            לחצי כדי לראות את כל החברות, או הקלידי כדי לסנן ביניהן. חצים למעלה ולמטה לניווט,
+            Enter לבחירה, Escape לסגירה.
+          </span>
         </div>
         <div class="field">
           <label for="f-experience">רמת ניסיון</label>
@@ -70,10 +77,6 @@
       </div>
 
       <div class="actions">
-        <span class="checkbox">
-          <input type="checkbox" id="f-open" checked>
-          <label for="f-open">משרות פתוחות בלבד</label>
-        </span>
         <button type="button" class="btn" id="reset">נקה סינון</button>
       </div>
     </fieldset>
