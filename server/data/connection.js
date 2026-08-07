@@ -6,10 +6,15 @@
  */
 
 const Database = require('better-sqlite3');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const db = new Database(path.join(__dirname, '..', '..', 'jobtracker.db'));
+// Tests that need real rows (pagination, ordering) set JT_DB_PATH=':memory:'
+// before requiring anything in server/data/ — the app itself never sets this,
+// so `node server/main.js` and the web server always use the real file.
+const dbPath = process.env.JT_DB_PATH || path.join(__dirname, '..', '..', 'jobtracker.db');
+const db = new Database(dbPath);
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
 /**
@@ -45,6 +50,15 @@ for (const [column, definition] of [
  * SQLite cannot ADD COLUMN ... NOT NULL without a default, so the column goes on
  * nullable and every existing row is adopted by the first account. On a fresh
  * database there is nothing to adopt and this does nothing.
+ *
+ * There used to be a gap here: with no account to adopt orphans into, this
+ * just left them — silently invisible forever, since `web/middleware/auth.js`
+ * has every request run as account *id* 1 while auth is off, without that
+ * row necessarily existing, and registration itself is blocked while auth is
+ * off (there is no signup flow to create it through). A database with
+ * pre-existing data and zero registered users could never self-heal. Now it
+ * creates that local account itself, so "every request runs as account 1"
+ * is true of a real row, not just a number nothing backs.
  */
 function backfillOwnership() {
     ensureColumn('applications', 'user_id', 'INTEGER REFERENCES users(id)');
@@ -55,11 +69,18 @@ function backfillOwnership() {
         db.prepare('SELECT COUNT(*) AS n FROM search_profiles WHERE user_id IS NULL').get().n;
     if (orphans === 0) return;
 
-    const owner = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get();
+    let owner = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get();
     if (!owner) {
-        // Rows exist but no account does — the data predates registration.
-        // Leave them; `node tools/create-user.js` adopts them on first signup.
-        return;
+        // A random, never-revealed value in the password_hash column, not the
+        // "salt:hash" shape verifyPassword expects — this account can never
+        // log in by password, on purpose. If auth is switched on later,
+        // `tools/set-password.js` gives it (or a newly registered account)
+        // a real one.
+        const info = db
+            .prepare('INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)')
+            .run('local@localhost', crypto.randomBytes(32).toString('hex'), new Date().toISOString());
+        owner = { id: info.lastInsertRowid };
+        console.log(`No account existed to own ${orphans} pre-existing row(s) — created local account ${owner.id}.`);
     }
 
     db.prepare('UPDATE applications SET user_id = ? WHERE user_id IS NULL').run(owner.id);

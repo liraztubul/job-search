@@ -17,7 +17,7 @@
   <div class="empty" id="accounts-off" hidden style="margin-bottom:1rem;text-align:start">
     <p style="margin-top:0"><strong>חשבונות כבויים כרגע.</strong></p>
     <p>השרת רץ בלי <code>JT_SESSION_SECRET</code>, אז אין למה להתחבר והכל רץ כחשבון יחיד.
-       זו תצוגה מקדימה של הדף בלבד.</p>
+       זו תצוגה מקדימה של הדף בלבד — לחיצה על הכפתור למטה תציג הודעת שגיאה, כצפוי.</p>
     <p style="margin-bottom:0">כדי להדליק, עצרי את השרת והריצי:</p>
     <p><code>node tools/set-password.js "סיסמה ארוכה"</code></p>
     <p style="margin-bottom:0">ואז הפעילי מחדש עם המשתנים שהוא הדפיס.</p>
@@ -38,6 +38,11 @@
       <input type="password" id="password" name="password" autocomplete="current-password" required>
     </div>
 
+    <div class="field" id="confirm-field" style="margin-top:.75rem" hidden>
+      <label for="password-confirm">אימות סיסמה</label>
+      <input type="password" id="password-confirm" name="password-confirm" autocomplete="new-password">
+    </div>
+
     <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
 
     <button type="submit" class="btn primary" style="width:100%" id="submit">התחברי</button>
@@ -54,10 +59,23 @@
 
 initUI();
 
-// Only bounce someone who is genuinely already signed in. When accounts are
-// switched off we STAY here and say so — a page that redirects away the moment
-// you open it is a page you can never look at, which is how this one went
-// missing in the first place.
+// The server's own error strings are deliberately plain English (they're also
+// read by non-UI callers) — translated here so a failed attempt reads in the
+// same language as the rest of the page instead of switching mid-sentence.
+const ERROR_TRANSLATIONS = {
+  'accounts are not configured': 'חשבונות כבויים כרגע — ראי את ההסבר למעלה.',
+  'login is not configured': 'חשבונות כבויים כרגע — ראי את ההסבר למעלה.',
+};
+const MIN_PASSWORD_LENGTH = 10;
+
+function showError(message) {
+  $('error').textContent = message;
+}
+
+// Only the banner is conditional on accounts being off; the button itself
+// stays enabled. A disabled button with only a hover tooltip for an
+// explanation produces zero feedback on click — this way an attempt to
+// submit always gets a real, visible answer, off or on.
 fetch('/api/session')
   .then((r) => r.json())
   .then((session) => {
@@ -67,11 +85,6 @@ fetch('/api/session')
     }
     if (!session.authRequired) {
       $('accounts-off').hidden = false;
-      // Only the submit is blocked — the server would reject it anyway. The
-      // toggle stays live so both forms are still viewable, which is the whole
-      // point of showing this page when accounts are off.
-      $('submit').disabled = true;
-      $('submit').title = 'חשבונות כבויים — ראי את ההסבר למעלה';
     }
   })
   .catch(() => {});
@@ -87,19 +100,41 @@ $('toggle-mode').addEventListener('click', () => {
   $('toggle-mode').textContent = registering ? 'כבר יש לי חשבון — כניסה' : 'אין לי חשבון — הרשמה';
   $('password').autocomplete = registering ? 'new-password' : 'current-password';
   $('hint').textContent = registering
-    ? 'לפחות 10 תווים. אין כרגע שחזור סיסמה, אז בחרי משהו שתזכרי.'
+    ? `לפחות ${MIN_PASSWORD_LENGTH} תווים. אין כרגע שחזור סיסמה, אז בחרי משהו שתזכרי.`
     : 'כל חשבון רואה רק את מעקב ההגשות שלו.';
-  $('error').textContent = '';
+
+  $('confirm-field').hidden = !registering;
+  $('password-confirm').required = registering;
+  if (!registering) $('password-confirm').value = '';
+
+  showError('');
 });
 
 $('login-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  $('error').textContent = '';
+  showError('');
+
+  const email = $('email').value;
+  const password = $('password').value;
+
+  if (mode === 'register') {
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      showError(`הסיסמה קצרה מדי — צריך לפחות ${MIN_PASSWORD_LENGTH} תווים.`);
+      $('password').focus();
+      return;
+    }
+    if (password !== $('password-confirm').value) {
+      showError('הסיסמאות אינן זהות.');
+      $('password-confirm').value = '';
+      $('password-confirm').focus();
+      return;
+    }
+  }
 
   const response = await fetch(mode === 'register' ? '/api/register' : '/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: $('email').value, password: $('password').value }),
+    body: JSON.stringify({ email, password }),
   }).catch(() => null);
 
   if (response && response.ok) {
@@ -108,15 +143,16 @@ $('login-form').addEventListener('submit', async (event) => {
   }
 
   if (!response) {
-    $('error').textContent = 'אין חיבור לשרת.';
+    showError('אין חיבור לשרת.');
     return;
   }
 
   // The server's wording is the honest one — it deliberately does not say
   // whether the email exists.
   const body = await response.json().catch(() => ({}));
-  $('error').textContent = body.error || 'משהו השתבש.';
+  showError(ERROR_TRANSLATIONS[body.error] || body.error || 'משהו השתבש.');
   $('password').value = '';
+  $('password-confirm').value = '';
   $('password').focus();
 });
 </script>

@@ -63,7 +63,7 @@ if (fs.existsSync(MANUAL_DIR)) {
 // --- 3. each company: does it build, and does it have jobs? ---------------
 console.log('');
 for (const company of companies) {
-    const jobCount = data.queryJobs({ companyId: company.id, limit: 2000 }).length;
+    const jobCount = data.countJobs(1, { companyId: company.id });
     console.log(`2. ${company.name}  (${company.adapter_type})`);
 
     try {
@@ -116,8 +116,10 @@ for (const company of companies) {
 }
 
 // --- 4. what the UI will actually show ------------------------------------
-const total = data.queryJobs({ limit: 5000 }).length;
-const open = data.queryJobs({ openOnly: true, limit: 5000 }).length;
+// Account 1 is the convention this whole project uses for local/dev tooling —
+// the same account you always are when JT_SESSION_SECRET isn't set.
+const total = data.countJobs(1, {});
+const open = data.countJobs(1, { openOnly: true });
 
 console.log(`\n3. What the search page shows`);
 console.log(`   ${total} job(s) total, ${open} marked open`);

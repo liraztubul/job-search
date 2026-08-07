@@ -8,6 +8,10 @@
 
 const { db } = require('./connection');
 const { locationTokens, locationSearchValue, isIsraeliLocation } = require('../domain/locations');
+const { requireUser } = require('./tenancy');
+
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 
 /** Returns { isNew, id } — inserts if unseen, otherwise just bumps last_seen_at */
 function upsertJobSnapshot(companyId, job) {
@@ -73,12 +77,17 @@ function upsertJobSnapshot(companyId, job) {
 // ---------------------------------------------------------------------------
 
 /**
- * Filtered job list. Every filter is optional; omitted ones don't constrain.
- * Built as parameterised SQL — never string-concatenated with user input.
+ * Shared by queryJobs and countJobs so they can never disagree about which
+ * rows match — countJobs would be pointless as a sanity check on pagination
+ * if the two built their WHERE clauses independently and drifted apart.
+ *
+ * `a.status` is read from `applications`, a personal table, so the join that
+ * uses this clause must also carry `AND a.user_id = @owner` — the WHERE
+ * clause alone doesn't scope the join, that's the caller's job.
  */
-function queryJobs(filters = {}) {
+function buildJobFilters(filters, owner) {
     const where = ['1 = 1'];
-    const params = {};
+    const params = { owner };
 
     if (filters.companyId) {
         where.push('j.company_id = @companyId');
@@ -92,9 +101,16 @@ function queryJobs(filters = {}) {
         where.push('j.experience_level = @experienceLevel');
         params.experienceLevel = filters.experienceLevel;
     }
-    if (filters.location) {
-        where.push('j.location_search LIKE @location');
-        params.location = `%${filters.location}%`;
+    // Any one of several locations, not all of them — a job is in Tel Aviv OR
+    // Haifa, never both, so "narrow to these cities" has to mean OR across the
+    // list. Each gets its own named param; LIKE values can't be bound as an array.
+    if (filters.locations && filters.locations.length) {
+        const clauses = filters.locations.map((loc, i) => {
+            const key = `location${i}`;
+            params[key] = `%${loc}%`;
+            return `j.location_search LIKE @${key}`;
+        });
+        where.push(`(${clauses.join(' OR ')})`);
     }
     if (filters.q) {
         where.push('(j.title LIKE @q OR j.department LIKE @q)');
@@ -108,10 +124,36 @@ function queryJobs(filters = {}) {
         where.push('j.is_still_open = 1');
     }
 
-    const sort =
-        filters.sort === 'title' ? 'j.title COLLATE NOCASE ASC' : 'j.first_seen_at DESC, j.id DESC';
+    return { whereClause: where.join(' AND '), params };
+}
 
-    return db
+/** Clamp to a page/pageSize SQLite will never choke on — 1+ and 1..100. */
+function clampPaging(filters) {
+    const page = Math.max(1, Math.trunc(Number(filters.page)) || 1);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(Number(filters.pageSize)) || DEFAULT_PAGE_SIZE));
+    return { page, pageSize };
+}
+
+/**
+ * One page of the filtered job list. Every filter is optional; omitted ones
+ * don't constrain. Built as parameterised SQL — never string-concatenated
+ * with user input.
+ *
+ * `, j.id DESC` is not decoration: `first_seen_at` alone is not a unique
+ * order (a whole scrape's worth of jobs — 673 of them, for Elbit — share one
+ * timestamp), so without a tiebreaker SQLite is free to order ties
+ * differently between two calls and a job can appear on two pages, or none.
+ */
+function queryJobs(userId, filters = {}) {
+    const owner = requireUser(userId);
+    const { whereClause, params } = buildJobFilters(filters, owner);
+    const { page, pageSize } = clampPaging(filters);
+    const sort =
+        filters.sort === 'title'
+            ? 'j.title COLLATE NOCASE ASC, j.id DESC'
+            : 'j.first_seen_at DESC, j.id DESC';
+
+    const jobs = db
         .prepare(
             `SELECT j.id, j.external_id AS externalId,
                     j.title, j.location, j.apply_url AS applyUrl, j.job_code AS jobCode, j.employment_type AS employmentType,
@@ -121,12 +163,34 @@ function queryJobs(filters = {}) {
                     a.status, a.notes, a.applied_at AS appliedAt
                FROM job_snapshots j
                JOIN watched_companies c ON c.id = j.company_id
-               LEFT JOIN applications a ON a.job_snapshot_id = j.id
-              WHERE ${where.join(' AND ')}
+               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = @owner
+              WHERE ${whereClause}
               ORDER BY ${sort}
-              LIMIT @limit`
+              LIMIT @pageSize OFFSET @offset`
         )
-        .all({ ...params, limit: Math.min(Number(filters.limit) || 500, 2000) });
+        .all({ ...params, pageSize, offset: (page - 1) * pageSize });
+
+    return { jobs, page, pageSize };
+}
+
+/**
+ * How many rows `queryJobs` would page through in total — a second query
+ * with the identical WHERE clause, not a number derived from one page's
+ * results. That's the whole point: a page of 20 rows can never tell you
+ * whether 21 or 21,000 more exist.
+ */
+function countJobs(userId, filters = {}) {
+    const owner = requireUser(userId);
+    const { whereClause, params } = buildJobFilters(filters, owner);
+
+    return db
+        .prepare(
+            `SELECT COUNT(*) AS n
+               FROM job_snapshots j
+               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = @owner
+              WHERE ${whereClause}`
+        )
+        .get(params).n;
 }
 
 /** Distinct values actually present in the data — so the UI never offers an empty filter. */
@@ -175,4 +239,4 @@ function filterOptions() {
     };
 }
 
-module.exports = { upsertJobSnapshot, queryJobs, filterOptions };
+module.exports = { upsertJobSnapshot, queryJobs, countJobs, filterOptions };

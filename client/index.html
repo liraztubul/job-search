@@ -63,9 +63,12 @@
           <label for="f-employment">היקף משרה</label>
           <select id="f-employment"><option value="">כל ההיקפים</option></select>
         </div>
-        <div class="field">
-          <label for="f-location">מיקום</label>
-          <select id="f-location"><option value="">כל המיקומים</option></select>
+        <div class="field multiselect" id="f-location-field">
+          <span class="field-label" id="f-location-label">מיקום</span>
+          <details id="f-location-menu">
+            <summary id="f-location-summary">כל המיקומים</summary>
+            <div class="multiselect-panel" id="f-location-options" role="group" aria-labelledby="f-location-label"></div>
+          </details>
         </div>
         <div class="field">
           <label for="f-status">סטטוס הגשה</label>
@@ -88,6 +91,7 @@
   </div>
 
   <div id="results" tabindex="-1"></div>
+  <nav id="pagination" class="pagination"></nav>
 </main>
 
 <script src="js/ui.js"></script>

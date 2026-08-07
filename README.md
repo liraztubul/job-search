@@ -58,6 +58,11 @@ of `RawJob`. Supporting a new platform is one new file; nothing else changes.
 
 Design decisions and their trade-offs: **ARCHITECTURE.md**.
 
+The search page is paginated (20 jobs/page) — `GET /api/jobs` returns
+`{ jobs, page, pageSize, totalMatching, totalPages }`, not a raw array. The
+whole filter state, page included, lives in the URL, so a search result is
+bookmarkable and survives a refresh.
+
 ## Adding a company whose platform has no adapter
 
 ```bash

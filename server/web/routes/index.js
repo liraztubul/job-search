@@ -17,7 +17,7 @@ const users = require('../../services/userService');
 const routes = {
     'GET /api/meta': ({ res }) => sendJson(res, 200, jobSearch.filterOptions()),
 
-    'GET /api/jobs': ({ res, url }) => sendJson(res, 200, { jobs: jobSearch.searchJobs(url.searchParams) }),
+    'GET /api/jobs': ({ res, url, userId }) => sendJson(res, 200, jobSearch.searchJobs(userId, url.searchParams)),
 
     'GET /api/applications': ({ res, userId }) => sendJson(res, 200, applications.listApplications(userId)),
 

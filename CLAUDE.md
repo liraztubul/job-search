@@ -196,3 +196,47 @@ Checked AllJobs.co.il as an indirect route to Rafael's postings too: its guest
 search is also bot-gated (hCaptcha + Reblaze-family bot management via
 Perfdrive, loaded by its own `ShowSearchResultGuestBlocker.js`). Not a way in
 either — don't re-try it hoping it's just a robots.txt courtesy block.
+
+**Pagination (Task 1 of IMPROVEMENT-PROMPT.md) is done.** `queryJobs`/`countJobs`
+in `server/data/jobs.js` share one `buildJobFilters()` so they can't drift
+apart, both take `userId` first, and `ORDER BY` always ends in `, j.id DESC` —
+`first_seen_at` alone isn't unique (673 Elbit rows share one timestamp) and
+without the tiebreaker a job can land on two pages or none. `GET /api/jobs`
+now returns `{ jobs, page, pageSize, totalMatching, totalPages }`; the old
+silent 500-row cap is gone. The client keeps the full filter state (including
+page) in the URL via `history.replaceState`, so a result set is bookmarkable
+and survives a refresh; changing a filter resets to page 1, paging does not.
+
+**Found and fixed while touching this:** `queryJobs`'s `LEFT JOIN applications`
+had no `a.user_id = @owner` clause — every account's job list was joining in
+*whichever* account's application status happened to match, a real cross-
+account leak of exactly the kind ADR-007 exists to prevent. `tests/jobs.test.js`
+now covers it directly, and `tests/tenancy.test.js` still only checks
+`server/data/applications.js`'s own exports — it does not (yet) catch a future
+function elsewhere joining a personal table without scoping it.
+
+**New for tests that need real rows:** `server/data/connection.js` reads
+`JT_DB_PATH` and opens that instead of `jobtracker.db` when it's set. Set it
+to `:memory:` at the very top of a test file, before requiring anything in
+`server/data/` — `node --test` runs each file in its own process, so this
+never touches your real data or another test file's connection. See
+`tests/jobs.test.js`.
+
+**Fixed a real data-loss bug (2026-08-07):** with `JT_SESSION_SECRET` unset
+and zero registered users, `backfillOwnership()` had nowhere to adopt
+pre-existing `applications`/`search_profiles` rows into (`user_id` stayed
+NULL), and — since registration itself is blocked while auth is off — there
+was no way to create an account to adopt them into either. Saved application
+statuses would silently vanish from the tracker with no error anywhere. Fixed
+by having `backfillOwnership()` create a local placeholder account
+(`local@localhost`, an unguessable non-`salt:hash` password that can never be
+used to log in) when orphans exist and no user does, so "every request runs
+as account 1" refers to a real row. Self-heals on next server start; no
+manual step needed.
+
+**Location filter is multi-select (2026-08-07):** `?location=` is now
+repeatable (`?location=Tel+Aviv&location=Haifa`), OR'd together — see
+`buildJobFilters` in `server/data/jobs.js`. The client renders it as
+checkboxes in a `<details>` disclosure (`fillLocationMultiselect` in
+search.js), not a `<select multiple>` — nobody knows ctrl/cmd-click selects
+more than one, and it can't show a per-option count either.
