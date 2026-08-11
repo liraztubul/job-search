@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { WorkdayAdapter, mapWorkdayJob, extractJobCode, descriptorMatchesCountry } = require('../server/adapters/workdayAdapter');
+const { WorkdayAdapter, mapWorkdayJob, extractJobCode, descriptorMatchesCountry, resolveLocationFacet } = require('../server/adapters/workdayAdapter');
 const { matches } = require('../server/domain/matcher');
 
 /**
@@ -53,6 +53,28 @@ const FACETS = [
 
 const HOST = 'intel.wd1.myworkdayjobs.com';
 const SITE = 'External';
+
+// Marvell's tenant, captured 2026-08-11, uses a completely different shape:
+// a flat top-level "Country" facet with exact country names, not nested
+// under locationMainGroup — its "Location" facet (id below) has cities only
+// ("Yokneam"), no country attached, so it can't answer "which are in Israel"
+// on its own no matter how the descriptor is pattern-matched.
+const FLAT_COUNTRY_FACETS = [
+    {
+        facetParameter: 'Location',
+        values: [
+            { descriptor: 'Santa Clara, CA', id: '65dea26481d00146ffa9c92a52177a36', count: 187 },
+            { descriptor: 'Yokneam', id: '65dea26481d001e0ff91642b5217aa38', count: 8 },
+        ],
+    },
+    {
+        facetParameter: 'Country',
+        values: [
+            { descriptor: 'United States of America', id: 'bc33aa3152ec01013d95b3999740000', count: 300 },
+            { descriptor: 'Israel', id: '084562884af243748dad7c84c304d89a', count: 14 },
+        ],
+    },
+];
 
 test('maps a real posting into RawJob', () => {
     const job = mapWorkdayJob(HAIFA_JOB, HOST, SITE, 'en-US');
@@ -148,6 +170,39 @@ test('country matching is a whole-segment match, not a substring one', () => {
     // "Israeli" or a city that happens to contain the country name as a
     // substring must not silently pass — that would falsely widen the filter.
     assert.equal(descriptorMatchesCountry('Israeli-American Chamber, NY', 'Israel'), false);
+});
+
+test('resolveLocationFacet uses the nested locationMainGroup shape (Intel)', () => {
+    const resolved = resolveLocationFacet(FACETS, 'Israel');
+    assert.equal(resolved.key, 'locations');
+    assert.deepEqual(resolved.ids, [
+        '1e4a4eb3adf1013563ba9174bf817fcd',
+        '1e4a4eb3adf101cb242c9e74bf8189cd',
+        '1e4a4eb3adf101aaeda8a474bf818ecd',
+    ]);
+});
+
+test('resolveLocationFacet prefers a flat top-level Country facet when one exists (Marvell)', () => {
+    const resolved = resolveLocationFacet(FLAT_COUNTRY_FACETS, 'Israel');
+    // The key has to be "Country", not "Location" — applying these ids under
+    // the wrong facet parameter filters on nothing and Workday just ignores it.
+    assert.equal(resolved.key, 'Country');
+    assert.deepEqual(resolved.ids, ['084562884af243748dad7c84c304d89a']);
+});
+
+test('resolveLocationFacet matches a country facet by suffix too (HP: "Location_Country")', () => {
+    const facets = [
+        { facetParameter: 'Location_Country', values: [{ descriptor: 'Israel', id: 'hp-il-id', count: 14 }] },
+    ];
+    const resolved = resolveLocationFacet(facets, 'Israel');
+    assert.equal(resolved.key, 'Location_Country');
+    assert.deepEqual(resolved.ids, ['hp-il-id']);
+});
+
+test('resolveLocationFacet returns null, not throws, when nothing matches either shape', () => {
+    assert.equal(resolveLocationFacet(FACETS, 'Atlantis'), null);
+    assert.equal(resolveLocationFacet(FLAT_COUNTRY_FACETS, 'Atlantis'), null);
+    assert.equal(resolveLocationFacet([], 'Israel'), null);
 });
 
 // ---------------------------------------------------------------------------

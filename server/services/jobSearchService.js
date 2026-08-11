@@ -27,14 +27,14 @@ function searchJobs(userId, params) {
         sort: params.get('sort') || null,
     };
 
-    // totalMatching has to be known before "page" means anything: page=99999
-    // against 8 real pages should land you on the last real page, not on an
-    // empty one that looks like "no results" for a filter that actually matches.
     const totalMatching = data.countJobs(userId, filters);
     const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(params.get('pageSize'))) || 20));
     const totalPages = Math.max(1, Math.ceil(totalMatching / pageSize));
-    const requestedPage = Math.trunc(Number(params.get('page'))) || 1;
-    const page = Math.min(Math.max(1, requestedPage), totalPages);
+    // Sanitized (a real positive integer), never substituted: page=99999 against
+    // 8 real pages is answered honestly — jobs: [] — not by silently swapping in
+    // page 8's rows for a page nobody asked for. totalPages is right there in
+    // the response for a caller that wants to react to being out of range.
+    const page = Math.max(1, Math.trunc(Number(params.get('page'))) || 1);
 
     const { jobs } = data.queryJobs(userId, { ...filters, page, pageSize });
 

@@ -418,7 +418,23 @@ function renderPagination(page, totalPages) {
   nav.append(prev, numbers, next);
 }
 
-function emptyState() {
+function emptyState(totalMatching, page) {
+  // A page past the end of the real result set (typed into the URL, or a
+  // bookmark from before the filter narrowed) is not "no matches" — the
+  // filter matches plenty, just not on this page number. Telling someone to
+  // remove filters when the actual fix is "go to page 1" sends them the
+  // wrong way.
+  if (totalMatching > 0 && page > 1) {
+    const backToStart = el('button', { type: 'button', className: 'btn', textContent: 'לעמוד הראשון' });
+    backToStart.addEventListener('click', () => goToPage(1));
+    return el('div', { className: 'empty' },
+      el('p', {
+        textContent: `אין משרות בעמוד ${page.toLocaleString('en-US')} — ` +
+          `יש ${totalMatching.toLocaleString('en-US')} משרות תואמות בסך הכל.`,
+      }),
+      backToStart);
+  }
+
   if (meta.total) {
     return el('div', { className: 'empty' }, 'אין משרות שעונות על הסינון הנוכחי. נסי להסיר חלק מהמסננים.');
   }
@@ -447,23 +463,28 @@ async function load() {
     return;
   }
 
-  // The server clamps an out-of-range page (99999 against 8 real pages lands
-  // on page 8, not on an empty page that reads as "no results"). Adopt
-  // whatever it actually served so the UI and the URL agree with reality.
+  // The server never substitutes a different page than the one asked for —
+  // page=99999 against 8 real pages comes back as page 99999 with an empty
+  // jobs array, not page 8's rows wearing page 99999's number. Adopt exactly
+  // what it echoed back so the UI and the URL always agree with the request.
   currentPage = page;
   updateUrl();
 
   // Three numbers, never conflated: how many match the filter (totalMatching),
   // which of those are on screen (the range), how many exist in total (meta.total,
   // used only by emptyState() below to tell "no matches" from "no data at all").
+  // A page with nothing on it (out of range) has no range to show — "מציג" of
+  // zero rows is not a range, it's a symptom, and emptyState() explains it below.
   $('results-count').textContent =
     totalMatching === 0
       ? 'לא נמצאו משרות'
-      : `${totalMatching.toLocaleString('en-US')} משרות תואמות · מציג ${formatRange(page, pageSize, jobs.length)}`;
+      : jobs.length === 0
+        ? `${totalMatching.toLocaleString('en-US')} משרות תואמות`
+        : `${totalMatching.toLocaleString('en-US')} משרות תואמות · מציג ${formatRange(page, pageSize, jobs.length)}`;
   announce('');
 
   if (jobs.length === 0) {
-    $('results').replaceChildren(emptyState());
+    $('results').replaceChildren(emptyState(totalMatching, page));
     $('pagination').replaceChildren();
     return;
   }

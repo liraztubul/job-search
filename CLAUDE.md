@@ -165,9 +165,9 @@ Guessing at field names is the main way this project wastes an hour.
 
 Working end to end for Amazon, Google, Mobileye, Elbit and NVIDIA. Notifications are still
 console-only — `notification_queue` from ARCHITECTURE.md §4.5 is not built yet.
-`ComeetAdapter` remains unverified against a live response.
-Twelve adapters registered: amazon, apple, ashby, checkpoint, comeet, eightfold,
-elbit, google, ibm, mobileye, oracle-hcm, workday.
+Fifteen adapters registered: amazon, apple, ashby, checkpoint, comeet, eightfold,
+elbit, google, greenhouse, ibm, mobileye, oracle-hcm, smartrecruiters, workday,
+wp-careers.
 Ashby and Workday are real third-party platforms (Ashby's public posting API
 needs no auth at all; Workday needs a two-step facet lookup to filter by
 country — see workdayAdapter.js). checkpoint is bespoke to Check Point's own
@@ -206,6 +206,12 @@ now returns `{ jobs, page, pageSize, totalMatching, totalPages }`; the old
 silent 500-row cap is gone. The client keeps the full filter state (including
 page) in the URL via `history.replaceState`, so a result set is bookmarkable
 and survives a refresh; changing a filter resets to page 1, paging does not.
+`page` is sanitized (a real integer, minimum 1) but never *substituted* — a
+page past the end of the real result set answers honestly with `jobs: []`
+and the true `totalMatching`/`totalPages`, not with a different page's rows
+wearing the requested page's number. The client shows a distinct "nothing on
+this page — N total matches, here's page 1" state for that case, separate
+from "nothing matches this filter at all".
 
 **Found and fixed while touching this:** `queryJobs`'s `LEFT JOIN applications`
 had no `a.user_id = @owner` clause — every account's job list was joining in
@@ -240,3 +246,139 @@ repeatable (`?location=Tel+Aviv&location=Haifa`), OR'd together — see
 checkboxes in a `<details>` disclosure (`fillLocationMultiselect` in
 search.js), not a `<select multiple>` — nobody knows ctrl/cmd-click selects
 more than one, and it can't show a per-option count either.
+
+**Greenhouse adapter added (2026-08-11).** Public, unauthenticated, genuinely
+meant for outside use: `GET https://boards-api.greenhouse.io/v1/boards/{token}/jobs`.
+The board token is often but not always the company's lowercased name — Wiz's
+is `wizinc`, Playtika's is `playtikaltd`. Found by noticing a company's own
+"custom" careers page proxies Greenhouse underneath: its job URLs carry a
+`?gh_jid=` param (see Riskified, Wiz). With no `location` configured it
+filters using the same Israeli-location whitelist as the rest of the site
+(`server/domain/locations.js`) rather than requiring per-company guessing.
+
+**Workday's facet shape is not standard across tenants — confirmed a third
+variant (2026-08-11).** Intel/Palo Alto Networks nest it under
+`locationMainGroup.locations` with no country of its own (pattern-match the
+city descriptor). Marvell exposes a flat top-level `Country` facet with exact
+country names. HP's version of the same idea is named `Location_Country`.
+`resolveLocationFacet()` in `workdayAdapter.js` tries a facet matching
+`/(^|_)country$/i` first and falls back to the nested shape — test each new
+tenant against both before assuming a location filter that returns nothing
+means the tenant has no Israel jobs (Marvell's *did* exist, just outside the
+old code's only-checked shape).
+
+**Two dead ends found while adding this batch of companies:**
+- **Israel Aerospace Industries** is behind Reblaze too (same signature as
+  Rafael — `kramericaindustries.ac_v2.lib.js`, `window.rbzns`). Not added.
+- Guessing Greenhouse board tokens is not proof of identity: `iai` returns
+  200 with 5 real jobs, but they're a small unrelated UK company, not Israel
+  Aerospace Industries — always check `job.location`/titles look plausible
+  for the actual company before trusting a token guess that happens to 200.
+
+**Snyk and Broadcom are both registered but genuinely at 0 Israel jobs right
+now** — verified two ways each (facet lookup finds no Israel entry among
+their real location lists, and a free-text "Israel" search independently
+turns up ~nothing). The adapter's own `getCurrentJobs()` throws on a
+configured-country-but-zero-matches result on purpose, as a signal to check
+the facet logic before trusting it — already checked here; a future scrape
+failure for these two isn't a new bug unless the facet lists themselves
+change shape again.
+
+**Mellanox needs no separate entry** — `mellanox.com/careers` redirects
+straight to `nvidia.com/.../careers`; it's fully folded into NVIDIA's own
+Workday... no, Eightfold tenant, already covered by "NVIDIA Israel".
+
+**Still unresolved from the 2026-08-11 batch** (each needs more individual
+digging than a quick probe gave): Meta (career site runs on an internal,
+session-bound GraphQL API — CSRF-shaped tokens in every request, not a
+public endpoint to reverse-engineer), Zoom, Fiverr, Deel, Cisco (has a
+`/widgets` endpoint, 404s on the params tried so far), Verint, SAP (its
+`jobs.sap.com/services/jobs/...` endpoints exist but need a request shape
+not yet found — SuccessFactors, not Workday), Outbrain (now merged with
+Teads — `outbrain.com/careers` redirects to `teads.com/teads-careers/`),
+ironSource (merged into Unity — `is.com/careers` redirects to
+`unity.com/careers`, no Israel/ironSource-specific filter found yet).
+
+**Two new platform adapters added for the 2026-08-11 second batch (Medtronic,
+Syneron/Candela, Panasonic Avionics, Biosense Webster, Lumenis, EZchip, Opgal,
+Matas Systems, Keter Plastic, Strauss-Elite Group, Klil, Plus500):**
+
+- **`smartrecruiters`** — SmartRecruiters' public postings API
+  (`api.smartrecruiters.com/v1/companies/{id}/postings`), genuinely open, no
+  auth. Verified against Syneron-Candela. The list payload has no clickable
+  apply link of its own (`ref` is the API resource, not a page) but
+  `jobs.smartrecruiters.com/{company}/{id}` resolves with no slug needed, so
+  building it doesn't cost a second request per job.
+- **`wp-careers`** — WordPress sites that publish jobs as a custom post type
+  with a location taxonomy, fetched via `_embed=true` so the taxonomy term
+  name comes back inline instead of a bare numeric id. Verified against
+  Keter's dedicated Israel careers subdomain (`careers.ketergroup.com`, post
+  type `careers`, location taxonomy `job_locall`). This is a generic REST
+  shape, not a named platform — expect the next WP-based company to spell
+  its own post type and taxonomy slug differently; check
+  `/wp-json/wp/v2/types` and `/wp-json/wp/v2/taxonomies` first. Keter's own
+  feed includes one evergreen "no open role fits? send us your CV anyway"
+  post mixed in with real openings — harmless noise, not worth a heuristic
+  to filter out since it still carries a real location term.
+
+**`ComeetAdapter` is now verified — and was actually broken as first written.**
+Confirmed live against Lumenis and Plus500 on 2026-08-11. Two real bugs fixed:
+the endpoint 400s ("Token is missing") without a per-company `?token=` query
+param that isn't the company uid — it's a second value that has to be dug out
+of the careers page's own bundled JS (next to `company_uid` in Lumenis's
+inline page config; inside a `getCareers()` function in Plus500's
+`js/general.js` as `comeetToken`). And `location` is a structured object
+(`city`, `country` as an ISO-2 code, no single display string worth reading)
+not the flat string the original mapping assumed. A multi-office posting also
+comes back as one array entry per office, uid suffixed per location
+(`"C5.F67-51.308"`), not one job with a location list — each entry is treated
+as its own RawJob, same as Greenhouse's multi-office shape.
+
+**Biosense Webster is tracked as "Johnson & Johnson Israel"**, same pattern as
+CyberArk under Palo Alto Networks: J&J is on Workday (`jj.wd5.myworkdayjobs.com`,
+tenant `jj`, site `JJ`), and there's no facet to isolate just the Biosense
+Webster brand within J&J's combined feed — but the Yokneam location alone is
+the tell (Biosense Webster Israel's real R&D site), same trick as CyberArk's
+"(EPM-Idira)" titles under PANW.
+
+**Medtronic is on Workday** too (`medtronic.wd1.myworkdayjobs.com`, tenant
+`medtronic`, site `MedtronicCareers`) — nested `locationMainGroup` facet shape
+like Intel, except the descriptor order is reversed ("Herzliya, Tel Aviv,
+Israel", country last instead of first). `descriptorMatchesCountry()` already
+handles this since it checks every segment, not just the first — no code
+change needed, just a config that happened to prove the reversed-order case.
+
+**EZchip needs no separate entry** — acquired by Mellanox in 2016, and Mellanox
+is itself folded into NVIDIA's own careers site (see the existing Mellanox
+note above). Following that chain twice over still lands on "NVIDIA Israel".
+
+**Syneron-Candela is registered but shows 0 jobs right now** — same
+"adapter throws on purpose" pattern as Snyk/Broadcom (see above): the company
+has exactly one open posting worldwide at verification time, in the US, none
+in Israel. Not a bug; will populate automatically if that changes.
+
+**Four dead ends found in this batch, each for a different reason:**
+- **Opgal** (an Elbit Systems company, Karmiel) — its `/about/careers` page
+  renders to almost no content and sniffing found no XHR job API at all.
+  Either genuinely zero open positions right now or the real listing lives
+  somewhere not linked from that page. Not added; worth a fresh probe later
+  rather than assuming it's permanently empty.
+- **Klil** (Karmiel, aluminum window/door systems) — its `/קריירה/` page is
+  pure culture-and-testimonials marketing content; no ATS embed, no XHR job
+  API, no job-shaped markup anywhere in the rendered DOM. Not added.
+- **Strauss-Elite Group** — has no self-hosted careers page at all; every
+  Israeli job board (Drushim, JobMaster, AllJobs) lists Strauss postings
+  independently, but the company itself doesn't run a feed to read from.
+  AllJobs specifically is already the known hCaptcha+Reblaze dead end from
+  the Rafael investigation — not re-tried here. Not added.
+- **Panasonic Avionics** — its careers site (iCIMS-based) never mentions
+  Israel anywhere, and its listed global offices are Toulouse, Hamburg,
+  London, Dallas, Dubai and Singapore — no Israel R&D/engineering presence to
+  filter for in the first place, unlike Snyk/Broadcom which are large
+  companies plausibly one posting away from showing up. Not added.
+
+**"Matas Systems" could not be identified.** No company by that name turned
+up in web search, Hebrew or English — closest matches were an unrelated
+Danish retail chain (Matas A/S) and an unrelated Dutch electronics company
+(Matas Electronics B.V.). Needs the user to confirm what company this refers
+to before it can be investigated.

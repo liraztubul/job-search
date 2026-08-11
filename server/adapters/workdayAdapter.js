@@ -9,15 +9,24 @@ const { guessExperienceFromTitle } = require('../domain/vocabulary');
  *
  *   POST https://{tenant}.wd{N}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
  *
- * Two things that aren't obvious from the API shape:
+ * Three things that aren't obvious from the API shape:
  *
  *   1. There's no plain "give me jobs in Israel" parameter. Location filtering
- *      goes through `appliedFacets.locations`, a list of opaque per-tenant
- *      hashes — you get them by making an unfiltered request first and reading
- *      the `facets` field. A free-text search for the country name looks like
- *      it works but is really a keyword match against title/description, and
+ *      goes through `appliedFacets`, a list of opaque per-tenant hashes — you
+ *      get them by making an unfiltered request first and reading the
+ *      `facets` field. A free-text search for the country name looks like it
+ *      works but is really a keyword match against title/description, and
  *      quietly returns a different (usually smaller) set than the real filter.
- *   2. `limit` is capped at 20 server-side; asking for more is a 400, not a
+ *   2. The facet layout isn't standard either. Intel and Palo Alto Networks
+ *      nest it — `facets[locationMainGroup].values[locations].values` — with
+ *      no country of its own, just city descriptors ("Israel, Haifa") to
+ *      pattern-match. Marvell instead exposes a flat top-level `Country`
+ *      facet with "Israel" as an exact value — its `locations`-equivalent
+ *      facet ("Location") only has cities ("Yokneam"), no country attached
+ *      at all, so the nested approach can't answer "which are in Israel" for
+ *      this tenant no matter how it's pattern-matched. `resolveLocationIds()`
+ *      tries the flat `Country` facet first and falls back to the nested one.
+ *   3. `limit` is capped at 20 server-side; asking for more is a 400, not a
  *      truncated response.
  */
 
@@ -46,6 +55,37 @@ function extractJobCode(bulletFields) {
 function descriptorMatchesCountry(descriptor, country) {
     const needle = country.trim().toLowerCase();
     return descriptor.split(/[,\-|]/).some((part) => part.trim().toLowerCase() === needle);
+}
+
+/**
+ * Pure: given one tenant's `facets` response and a country name, find the
+ * facet parameter to filter on and the ids under it that mean that country.
+ * Separated from resolveLocationIds() so the facet shapes (flat `Country` /
+ * `Location_Country` vs. nested `locationMainGroup`) can be tested against
+ * fixtures without a network call.
+ *
+ * @returns {{key: string, ids: string[]}|null} null when nothing matched
+ */
+function resolveLocationFacet(facets, country) {
+    // "Country" (Marvell), "Location_Country" (HP) — matched by suffix rather
+    // than an exact name because there's no reason to expect this project's
+    // third tenant spells it either of the first two ways.
+    const countryFacet = (facets || []).find((f) => /(^|_)country$/i.test(f.facetParameter || ''));
+    if (countryFacet) {
+        const needle = country.trim().toLowerCase();
+        const ids = (countryFacet.values || [])
+            .filter((v) => v.descriptor.trim().toLowerCase() === needle)
+            .map((v) => v.id);
+        if (ids.length) return { key: countryFacet.facetParameter, ids };
+    }
+
+    const group = (facets || []).find((f) => f.facetParameter === 'locationMainGroup');
+    const nested = group?.values?.find((v) => v.facetParameter === 'locations');
+    const ids = (nested?.values || [])
+        .filter((v) => descriptorMatchesCountry(v.descriptor, country))
+        .map((v) => v.id);
+
+    return ids.length ? { key: nested.facetParameter, ids } : null;
 }
 
 /** Pure mapping: one Workday job posting -> RawJob. */
@@ -117,25 +157,29 @@ class WorkdayAdapter extends JobSource {
         return res.json();
     }
 
-    /** @returns {Promise<string[]>} facet ids for every location under this.country */
+    /**
+     * @returns {Promise<{key: string, ids: string[]}>} the facet parameter to
+     *   filter on and the ids under it that mean "this.country" — the key
+     *   varies by tenant (see the file header), so it has to travel with the
+     *   ids: applying them under the wrong facet name filters on nothing.
+     */
     async resolveLocationIds() {
         const data = await this.postSearch({ appliedFacets: {}, limit: 1, offset: 0, searchText: '' });
-        const group = (data.facets || []).find((f) => f.facetParameter === 'locationMainGroup');
-        const locations = group?.values?.find((v) => v.facetParameter === 'locations')?.values || [];
-        const ids = locations.filter((v) => descriptorMatchesCountry(v.descriptor, this.country)).map((v) => v.id);
+        const resolved = resolveLocationFacet(data.facets, this.country);
 
-        if (ids.length === 0) {
+        if (!resolved) {
             throw new Error(
-                `Workday: no location on ${this.host} matches country "${this.country}". Check the ` +
-                    `spelling against the tenant's own facet list, or re-run: node tools/probe.js "${this.jobsUrl}"`
+                `Workday: no location on ${this.host} matches country "${this.country}" (checked a top-level ` +
+                    `Country facet and the nested locations one). Check the spelling against the tenant's own ` +
+                    `facet list, or re-run: node tools/probe.js "${this.jobsUrl}"`
             );
         }
-        return ids;
+        return resolved;
     }
 
     async getCurrentJobs() {
-        const locationIds = this.country ? await this.resolveLocationIds() : [];
-        const appliedFacets = locationIds.length ? { locations: locationIds } : {};
+        const resolved = this.country ? await this.resolveLocationIds() : null;
+        const appliedFacets = resolved ? { [resolved.key]: resolved.ids } : {};
 
         const jobs = [];
         let total = null;
@@ -155,4 +199,4 @@ class WorkdayAdapter extends JobSource {
     }
 }
 
-module.exports = { WorkdayAdapter, mapWorkdayJob, extractJobCode, descriptorMatchesCountry };
+module.exports = { WorkdayAdapter, mapWorkdayJob, extractJobCode, descriptorMatchesCountry, resolveLocationFacet };
