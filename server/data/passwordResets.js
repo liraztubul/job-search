@@ -56,19 +56,32 @@ function listRecentPasswordResets(sinceIso) {
  *   stale double-click) — the caller treats that as "link already used".
  */
 function confirmPasswordReset({ resetId, userId, newPasswordHash }) {
-    const run = db.transaction(() => {
-        const nowIso = new Date().toISOString();
-        const result = db
-            .prepare('UPDATE password_resets SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL')
-            .run(nowIso, resetId);
-        if (result.changes === 0) throw new Error('reset token already used');
+    // Two statements, no db.transaction() — and the ORDER is what makes it safe.
+    //
+    // A remote libSQL connection is stateless HTTP: BEGIN and COMMIT arrive as
+    // unrelated requests, so `db.transaction()` throws "cannot rollback - no
+    // transaction is active" against the hosted database while working
+    // perfectly against a local file. Every test passes and production fails.
+    //
+    // The atomicity that actually matters is already in the first statement:
+    // `WHERE consumed_at IS NULL` can only ever match once, so of two
+    // simultaneous confirmations exactly one sees changes === 1.
+    //
+    // Consuming the token BEFORE changing the password is the deliberate part.
+    // If the process dies between the two, the link is spent and the password
+    // is unchanged — the user requests a new link, and nothing is weakened. The
+    // other order fails open: the password would change while the link stayed
+    // reusable by anyone holding it.
+    const nowIso = new Date().toISOString();
+    const result = db
+        .prepare('UPDATE password_resets SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL')
+        .run(nowIso, resetId);
+    if (result.changes === 0) throw new Error('reset token already used');
 
-        db.prepare('UPDATE users SET password_hash = ?, session_epoch = session_epoch + 1 WHERE id = ?').run(
-            newPasswordHash,
-            userId
-        );
-    });
-    run();
+    db.prepare('UPDATE users SET password_hash = ?, session_epoch = session_epoch + 1 WHERE id = ?').run(
+        newPasswordHash,
+        userId
+    );
 }
 
 module.exports = { createPasswordReset, listRecentPasswordResets, confirmPasswordReset };

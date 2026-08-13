@@ -27,19 +27,27 @@ function listActiveEmailConfirmations(nowIso) {
  *   twice isn't a security event worth alarming anyone about.
  */
 function confirmEmail({ confirmationId, userId }) {
-    const run = db.transaction(() => {
-        const nowIso = new Date().toISOString();
-        const result = db
-            .prepare('UPDATE email_confirmations SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL')
-            .run(nowIso, confirmationId);
-        if (result.changes === 0) throw new Error('confirmation token already used');
+    // No db.transaction() — it throws against a remote libSQL connection, where
+    // BEGIN and COMMIT are separate stateless HTTP requests. See the longer
+    // note in passwordResets.js; the single-match `WHERE consumed_at IS NULL`
+    // is what actually provides the once-only guarantee.
+    //
+    // Here the order is the reverse of the password reset, and for the mirror
+    // reason: marking the address verified is the harmless half. If the process
+    // dies after it, the token is still unconsumed and a second click is a
+    // no-op against `WHERE email_verified_at IS NULL`. Burning the token first
+    // could leave a real address permanently unverified with no way to retry.
+    const nowIso = new Date().toISOString();
 
-        db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL').run(
-            nowIso,
-            userId
-        );
-    });
-    run();
+    db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL').run(
+        nowIso,
+        userId
+    );
+
+    const result = db
+        .prepare('UPDATE email_confirmations SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL')
+        .run(nowIso, confirmationId);
+    if (result.changes === 0) throw new Error('confirmation token already used');
 }
 
 module.exports = { createEmailConfirmation, listActiveEmailConfirmations, confirmEmail };

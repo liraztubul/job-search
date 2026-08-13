@@ -56,8 +56,20 @@ const remote = new Database(url, { authToken: token });
 
 console.log(`\nPushing ${path.basename(localPath)} -> ${url}\n`);
 
-// The schema first: `CREATE TABLE IF NOT EXISTS` makes this safe to re-run.
-remote.exec(fs.readFileSync(path.join(ROOT, 'server', 'data', 'schema.sql'), 'utf8'));
+// The schema first — and via the same function the app itself uses, not by
+// reading schema.sql directly. Six of `job_snapshots`' columns were added after
+// the table existed and live only in connection.js's migration list, so a
+// database built from schema.sql alone rejects every job insert with "no column
+// named location_search". Sharing the function is what stops the two from
+// drifting the next time a column is added.
+//
+// Safe to re-run: CREATE TABLE IF NOT EXISTS does nothing to an existing table,
+// and each column is added only when absent.
+// From data/schema.js, not data/connection.js: requiring connection.js opens a
+// database as a side effect, and with TURSO_DATABASE_URL set — which it is,
+// here — that would be a second connection to the very database being written.
+const { applySchema } = require('../server/data/schema');
+applySchema(remote);
 console.log('  schema applied');
 
 /** Companies before jobs — job_snapshots.company_id references them. */
@@ -71,17 +83,34 @@ for (const table of SHARED_TABLES) {
     }
 
     const columns = Object.keys(rows[0]);
-    const placeholders = columns.map((c) => `@${c}`).join(', ');
-    // INSERT OR REPLACE, so re-running updates changed rows instead of failing
-    // on the primary key — this is a refresh, not a one-time import.
-    const insert = remote.prepare(
-        `INSERT OR REPLACE INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`
-    );
+    const columnList = columns.map((c) => `"${c}"`).join(', ');
 
-    const pushAll = remote.transaction((batch) => {
-        for (const row of batch) insert.run(row);
-    });
-    pushAll(rows);
+    /**
+     * No `remote.transaction()` here, deliberately.
+     *
+     * A remote libSQL connection is stateless HTTP: `BEGIN` and `COMMIT` travel
+     * as separate requests and the server has nothing tying them together, so
+     * the wrapper's `ROLLBACK` arrives at a connection that never opened a
+     * transaction — "cannot rollback - no transaction is active". It works
+     * perfectly against a local file, which is exactly why it is easy to miss.
+     *
+     * Atomicity is not needed: every statement is `INSERT OR REPLACE`, so a run
+     * that dies halfway can simply be run again. What *is* needed is fewer
+     * round trips — 2,500 single-row inserts over the network is thousands of
+     * requests. Multi-row VALUES batches turn that into a few dozen.
+     *
+     * Batch size is derived from the column count because SQLite caps bound
+     * parameters per statement (999 on older builds); a hardcoded 100 would
+     * work for one table and fail on the next one to gain a column.
+     */
+    const batchSize = Math.max(1, Math.floor(900 / columns.length));
+
+    for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        const tuple = `(${columns.map(() => '?').join(', ')})`;
+        const sql = `INSERT OR REPLACE INTO "${table}" (${columnList}) VALUES ${batch.map(() => tuple).join(', ')}`;
+        remote.prepare(sql).run(batch.flatMap((row) => columns.map((c) => row[c])));
+    }
 
     console.log(`  ${table}: ${rows.length} row(s) pushed`);
 }

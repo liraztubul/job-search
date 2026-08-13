@@ -15,6 +15,8 @@
 //
 // It replaces better-sqlite3 rather than joining it, so the project still has
 // exactly one runtime dependency (ADR-002).
+const { applySchema, ensureColumn: ensureColumnOn } = require('./schema');
+
 const Database = require('libsql');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -106,46 +108,14 @@ db.prepare = (sql) => {
     };
     return statement;
 };
-db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
-/**
- * `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so
- * new columns never reach a database created before they were added. This adds
- * only what's missing, which makes running it repeatedly harmless.
- *
- * A real migration framework would be overkill for one developer and one file;
- * this is the smallest thing that stops `node server/main.js` from crashing on a
- * database you seeded last week.
- */
-function ensureColumn(table, column, definition) {
-    const columns = db.prepare(`PRAGMA table_info(${table})`).all();
-    if (!columns.some((c) => c.name === column)) {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-    }
-}
+// Tables and every column added since. The lists live in schema.js so a tool
+// can bring a brand-new remote database to the same shape without opening a
+// connection of its own — see the note at the top of that file.
+applySchema(db);
 
-for (const [column, definition] of [
-    ['employment_type', 'TEXT'],
-    ['experience_level', 'TEXT'],
-    ['department', 'TEXT'],
-    ['posted_at', 'TEXT'],
-    ['location_search', 'TEXT'],
-    ['job_code', 'TEXT'],
-]) {
-    ensureColumn('job_snapshots', column, definition);
-}
-
-// Password reset (session_epoch) and registration email confirmation
-// (email_verified_at) landed after accounts were already live in production —
-// a NOT NULL column needs a default to be added to a table with existing
-// rows, which is why session_epoch gets one and email_verified_at (no sane
-// non-null default for "has this address been proven") stays nullable.
-for (const [column, definition] of [
-    ['session_epoch', 'INTEGER NOT NULL DEFAULT 0'],
-    ['email_verified_at', 'TEXT'],
-]) {
-    ensureColumn('users', column, definition);
-}
+/** Kept for callers that migrate a single column against this connection. */
+const ensureColumn = (table, column, definition) => ensureColumnOn(db, table, column, definition);
 
 /**
  * Going multi-account on a database that already has one person's data in it.

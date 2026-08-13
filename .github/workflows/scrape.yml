@@ -1,0 +1,70 @@
+# Keeps the live job list fresh.
+#
+# WHY HERE AND NOT INSIDE THE WEB SERVER
+#
+# The obvious place for "every few hours, scrape" is a setInterval in
+# server/web/server.js. It does not work on the free tier: the container is
+# stopped after fifteen minutes without traffic, and a stopped process runs no
+# timers. The scrape would only happen while somebody happened to be browsing —
+# which is exactly when the data is already being read.
+#
+# GitHub already runs scheduled jobs for free, on machines that are awake
+# because this workflow woke them. It checks out the code, runs one scrape
+# cycle straight into the hosted database, and exits. Render is not involved: it
+# reads from the same database on the next request and serves whatever is there.
+#
+# WHAT IT DOES NOT DO
+#
+# It does not create companies. `watched_companies` rows are configuration, not
+# scraped data — they come from `tools/add-company.js` and live in the database.
+# Push them up once with `tools/push-to-turso.js`; after that this keeps the
+# jobs behind them current.
+
+name: Scrape career pages
+
+on:
+  schedule:
+    # 03:00 and 15:00 UTC — roughly 06:00 and 18:00 Israel time, so the morning
+    # run has finished before anyone looks. GitHub runs scheduled jobs on a
+    # best-effort basis and can delay them by several minutes under load; this
+    # is a job list, not a market feed, and a late run costs nothing.
+    - cron: '0 3,15 * * *'
+
+  # A button in the Actions tab. Waiting six hours to find out whether a fix
+  # worked is how adapter bugs survive.
+  workflow_dispatch:
+
+# Two runs writing the same rows at once would race each other for no benefit.
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # A hung fetch against one unresponsive career site should not burn hours.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # libsql is a native module. On Linux with a matching prebuilt this is
+      # quick; if it has to compile, the runner already has the toolchain.
+      - run: npm ci
+
+      - name: Run one scrape cycle
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node server/main.js
+
+      # main.js exits non-zero when an adapter fails, so a broken scraper turns
+      # this run red instead of quietly leaving yesterday's jobs in place
+      # looking current. A career site changing its API is normal; finding out
+      # weeks later because the listings went stale is the failure worth
+      # avoiding. GitHub emails on a failed scheduled run.
