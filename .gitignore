@@ -4,6 +4,10 @@ node_modules/
 *.db-journal
 .DS_Store
 
+# local assistant session state — transcripts and machine-specific config,
+# not part of the project
+.claude/
+
 # probe output — raw scraped bodies, regenerate with `node tools/probe-all.js`
 tools/probe-output.txt
 tools/probe-bodies/
@@ -12,3 +16,8 @@ tools/sniff-report.md
 
 # your own manual job lists — personal, like the DB
 data/manual/*.json
+
+# The public demo database: job listings only, every personal table emptied
+# and the file vacuumed by tools/make-demo-db.js. It has to be committed —
+# the free host has no disk, so the listings ship inside the image.
+!demo.db

@@ -1,4 +1,4 @@
-# Job Tracker
+# JobTrail
 
 Watches company career pages, diffs against the last known state, matches new
 postings against saved search profiles, and serves a local web UI for browsing
@@ -92,7 +92,7 @@ rate limiting, privacy policy.
 ```bash
 npm install
 npm test                          # node --test — fast, no network, no DB
-node server/seed.js               # one-time: creates jobtracker.db
+node server/seed.js               # one-time: creates jobtrail.db
 node server/main.js               # one full check cycle
 node server/web/server.js         # web UI at http://localhost:3000
 node tools/set-password.js "…"    # prints JT_SESSION_SECRET for .env
@@ -155,7 +155,7 @@ Guessing at field names is the main way this project wastes an hour.
 - It's also a **native module** — `node_modules` is not portable between
   Windows and Linux. Install on the machine that runs it.
 - Development is on **Windows**. Don't assume bash-only shell syntax.
-- Never commit `.env` or `jobtracker.db` (it holds personal search profiles).
+- Never commit `.env` or `jobtrail.db` (it holds personal search profiles).
 - A scrape returning `[]` usually means the scraper broke, not that the company
   closed every role. Never act on an empty result as if it were real.
 - The pages must be opened **through the server**, not by double-clicking the
@@ -197,7 +197,7 @@ search is also bot-gated (hCaptcha + Reblaze-family bot management via
 Perfdrive, loaded by its own `ShowSearchResultGuestBlocker.js`). Not a way in
 either — don't re-try it hoping it's just a robots.txt courtesy block.
 
-**Pagination (Task 1 of IMPROVEMENT-PROMPT.md) is done.** `queryJobs`/`countJobs`
+**Pagination (see ROADMAP.md) is done.** `queryJobs`/`countJobs`
 in `server/data/jobs.js` share one `buildJobFilters()` so they can't drift
 apart, both take `userId` first, and `ORDER BY` always ends in `, j.id DESC` —
 `first_seen_at` alone isn't unique (673 Elbit rows share one timestamp) and
@@ -222,7 +222,7 @@ now covers it directly, and `tests/tenancy.test.js` still only checks
 function elsewhere joining a personal table without scoping it.
 
 **New for tests that need real rows:** `server/data/connection.js` reads
-`JT_DB_PATH` and opens that instead of `jobtracker.db` when it's set. Set it
+`JT_DB_PATH` and opens that instead of `jobtrail.db` when it's set. Set it
 to `:memory:` at the very top of a test file, before requiring anything in
 `server/data/` — `node --test` runs each file in its own process, so this
 never touches your real data or another test file's connection. See

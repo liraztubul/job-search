@@ -13,9 +13,9 @@
  *
  * WHAT IT IS NOT
  *
- * Not a full account system yet. Registration and login work; email
- * verification, password reset and login rate limiting do not exist. Do not put
- * this in front of strangers until they do — see ARCHITECTURE.md ADR-007.
+ * Not a full account system yet. Registration, login and rate limiting
+ * (server/web/middleware/rateLimit.js) work; email verification and password
+ * reset do not exist yet — see ARCHITECTURE.md ADR-007 and ROADMAP.md.
  *
  * Uses node:crypto only: scrypt for the password, HMAC for the session cookie.
  * No dependency, nothing to keep patched.
@@ -30,6 +30,9 @@
  */
 
 const crypto = require('crypto');
+const { promisify } = require('util');
+
+const scryptAsync = promisify(crypto.scrypt);
 
 const COOKIE_NAME = 'jt_session';
 const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 30; // a month; it's your own phone
@@ -41,19 +44,106 @@ const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 30; // a month; it's your own phone
  */
 const isEnabled = () => Boolean(process.env.JT_SESSION_SECRET);
 
-/** scrypt with a random salt, stored as "salt:hash". */
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-    const derived = crypto.scryptSync(password, salt, 64).toString('hex');
-    return `${salt}:${derived}`;
+/**
+ * PASSWORD HASHING — async, and why the cost is what it is
+ *
+ * `crypto.scryptSync` runs on the main thread. Node is single-threaded, so
+ * while it runs — about 100ms at the old N=2^14 — the whole server is frozen:
+ * no job search, no static files, nothing. Ten concurrent login attempts (the
+ * exact shape of the credential-stuffing attack Task 1's rate limiter exists
+ * for) froze the server for about a second. `crypto.scrypt` (the async form)
+ * runs on libuv's threadpool instead, so it costs CPU without blocking the
+ * event loop.
+ *
+ * OWASP suggests N=2^17, but scrypt's memory cost is roughly 128 * N * r
+ * bytes — at N=2^17, r=8 that's ~134MB *per concurrent hash*, on a 512MB Fly
+ * machine. N=2^16 keeps that to ~64MB (still over Node's 32MB default
+ * `maxmem`, so it must be set explicitly) while roughly doubling the cost an
+ * attacker pays over the old default.
+ *
+ * MEASURED (`node tools/bench-auth.js`, 2026-08-13, developer machine —
+ * Windows, 13th Gen Intel Core i7-1355U, 12 logical CPUs, 16GB RAM — NOT the
+ * 512MB/shared-cpu-1x Fly VM this actually deploys to; re-run there before
+ * trusting these numbers in production):
+ *
+ *   single hash:  ~30ms  at the old N=2^14  vs  ~110ms  at the new N=2^16
+ *   10 concurrent logins, max event-loop delay: ~290ms (old, sync, blocking)
+ *                                            vs   ~19ms  (new, async, threadpool)
+ *
+ * ~110ms is comfortably under the ~250ms budget even on a machine slower than
+ * this one, and Task 1's login rate limit caps how many of these can run
+ * concurrently before Node's threadpool (default size 4) queues the rest
+ * anyway. The ~15x drop in max event-loop delay is the actual point: the old
+ * code made the whole server unresponsive for the better part of a second
+ * under ten concurrent attempts; the new code barely moves it.
+ */
+const CURRENT_PARAMS = Object.freeze({ N: 2 ** 16, r: 8, p: 1 });
+
+/** Hashes made by the original `scryptSync(password, salt, 64)` call, which
+ * used Node's implicit defaults: N=2^14, r=8, p=1. */
+const LEGACY_PARAMS = Object.freeze({ N: 2 ** 14, r: 8, p: 1 });
+
+const KEY_LENGTH = 64;
+
+// scrypt refuses to run once N * r * 128 exceeds `maxmem` (32MB by default).
+// 1.5x headroom over the theoretical minimum so a slightly heavier N doesn't
+// throw "memory limit exceeded" instead of failing loudly in a benchmark.
+const maxmemFor = ({ N, r }) => Math.ceil(128 * N * r * 1.5);
+
+async function deriveKey(password, salt, { N, r, p }) {
+    const buf = await scryptAsync(password, salt, KEY_LENGTH, { N, r, p, maxmem: maxmemFor({ N, r }) });
+    return buf.toString('hex');
+}
+
+/**
+ * @param {string} stored
+ * @returns {{params: {N:number,r:number,p:number}, salt: string, hash: string}|null}
+ */
+function parseStoredHash(stored) {
+    const value = String(stored);
+
+    if (!value.includes('$')) {
+        // Legacy "salt:hash" shape — no parameters recorded, so assume the
+        // only ones this codebase ever produced with scryptSync.
+        const [salt, hash] = value.split(':');
+        return salt && hash ? { params: LEGACY_PARAMS, salt, hash } : null;
+    }
+
+    const parts = value.split('$');
+    if (parts.length !== 6 || parts[0] !== 'scrypt') return null;
+    const [, n, r, p, salt, hash] = parts;
+    const N = Number(n);
+    const R = Number(r);
+    const P = Number(p);
+    if (![N, R, P].every(Number.isInteger) || !salt || !hash) return null;
+    return { params: { N, r: R, p: P }, salt, hash };
+}
+
+/** scrypt with a random salt, stored self-describing: "scrypt$N$r$p$salt$hash" —
+ * so raising the cost later never locks out a password hashed at the old one. */
+async function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+    const derived = await deriveKey(password, salt, CURRENT_PARAMS);
+    const { N, r, p } = CURRENT_PARAMS;
+    return `scrypt$${N}$${r}$${p}$${salt}$${derived}`;
+}
+
+/** True when a stored hash was made with weaker-than-current parameters (or
+ * the legacy no-parameters shape) and is worth silently upgrading. */
+function needsRehash(stored) {
+    const parsed = parseStoredHash(stored);
+    if (!parsed) return false;
+    const { N, r, p } = parsed.params;
+    return N !== CURRENT_PARAMS.N || r !== CURRENT_PARAMS.r || p !== CURRENT_PARAMS.p;
 }
 
 /** Constant-time compare, so a wrong guess doesn't leak how wrong it was. */
-function verifyPassword(password, stored) {
-    const [salt, expected] = String(stored).split(':');
-    if (!salt || !expected) return false;
-    const actual = crypto.scryptSync(password, salt, 64).toString('hex');
+async function verifyPassword(password, stored) {
+    const parsed = parseStoredHash(stored);
+    if (!parsed) return false;
+
+    const actual = await deriveKey(password, parsed.salt, parsed.params);
     const a = Buffer.from(actual, 'hex');
-    const b = Buffer.from(expected, 'hex');
+    const b = Buffer.from(parsed.hash, 'hex');
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
@@ -149,6 +239,7 @@ module.exports = {
     currentUserId,
     hashPassword,
     verifyPassword,
+    needsRehash,
     signSession,
     verifySession,
     startSession,

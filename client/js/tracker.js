@@ -144,6 +144,29 @@ async function load() {
   try {
     data = await fetchJson('/api/applications');
   } catch {
+    // Two very different failures land here and used to render the same
+    // "server is down" panel: the server really being unreachable, and the
+    // ordinary case of not being signed in — which became ordinary the moment
+    // the job list went public and this page stopped being reachable only
+    // after a login. Telling someone their server is broken when they simply
+    // need to sign in sends them to debug a machine instead of clicking a link.
+    const session = await fetch('/api/session').then((r) => r.json()).catch(() => null);
+
+    if (session && session.authRequired && !session.authenticated) {
+      $('results-count').textContent = 'נדרשת התחברות';
+      const panel = el('div', { className: 'empty' });
+      panel.append(
+        el('p', { textContent: 'מעקב ההגשות הוא אישי — צריך חשבון כדי לראות אותו.' }),
+        el('p', {
+          className: 'results-note',
+          textContent: 'חיפוש המשרות עצמו פתוח לכולם ולא דורש התחברות.',
+        }),
+        el('a', { className: 'btn primary', href: 'login.html', textContent: 'התחברות או הרשמה' })
+      );
+      $('results').replaceChildren(panel);
+      return;
+    }
+
     $('results-count').textContent = 'לא ניתן לטעון את הנתונים';
     $('results').replaceChildren(serverDownPanel());
     return;

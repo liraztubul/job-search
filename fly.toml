@@ -1,0 +1,63 @@
+# Fly.io deployment.
+#
+# `app` becomes the address: app = "jobtrail" -> https://jobtrail.fly.dev
+# If that name is already taken by someone else on Fly, rename it here before
+# your first deploy (and update the link in README.md to match).
+#
+# Full walkthrough, including the one command you must run before the first
+# deploy: DEPLOY.md
+
+app = "jobtrail"
+primary_region = "cdg"   # Paris — closest region to Israel with a free tier
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  # On the mounted volume, not inside the image — see the [mounts] block.
+  JT_DB_PATH = "/data/jobtrail.db"
+  # Fly puts every request through its own internal proxy, so
+  # req.socket.remoteAddress is Fly's address, not the visitor's — the login
+  # rate limiter (server/web/middleware/rateLimit.js) would otherwise see one
+  # IP for everyone and let one attacker's failures lock out every visitor.
+  # This tells it to trust Fly-Client-IP / X-Forwarded-For instead. Leave
+  # unset when running locally — those headers are attacker-controlled input
+  # from anywhere that isn't actually behind Fly's proxy.
+  JT_TRUST_PROXY = "1"
+
+# The database.
+#
+# Without this block, SQLite writes into the container's own filesystem, which
+# is destroyed and recreated on every single deploy. Everything would work
+# perfectly in testing and then delete every registered account the first time
+# you shipped a change — with no error, because writing to a temporary disk is
+# not an error.
+[mounts]
+  source = "jobtrail_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true          # http:// requests are redirected, not served
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+
+  # ZERO, not one.
+  #
+  # SQLite is a single file with a single writer. Two machines would each mount
+  # their own copy of the volume and diverge: an account created on one would
+  # not exist on the other, and which one a visitor reached would depend on
+  # routing. Scaling past one machine means moving to Postgres first —
+  # ARCHITECTURE.md ADR-002 covers when that trade becomes worth it.
+  min_machines_running = 0
+  max_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

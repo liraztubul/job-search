@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One entry, on purpose.
+
+  A sitemap listing thousands of ?company=3&page=7 URLs would be filler: they
+  are the same page with different filter state, and Google treats near-identical
+  pages as duplicates rather than as more of the site. One canonical entry for
+  the search page is the honest description of what exists.
+
+  When individual job pages exist (each job at its own URL, server-rendered),
+  those belong here — that is what would actually make a search for a job title
+  land on this site.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://job-tracker.fly.dev/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

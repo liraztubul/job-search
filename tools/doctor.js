@@ -31,7 +31,7 @@ const fail = (...args) => {
     bad(...args);
 };
 
-console.log('\nJob Tracker — checking the chain\n');
+console.log('\nJobTrail — checking the chain\n');
 
 // --- 1. companies ---------------------------------------------------------
 const companies = data.listCompanies();

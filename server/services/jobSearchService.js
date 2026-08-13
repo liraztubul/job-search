@@ -7,6 +7,7 @@
  */
 
 const data = require('../data');
+const { GUEST } = require('../data/tenancy');
 const { APPLICATION_STATUSES } = require('../domain/applicationStatus');
 
 /**
@@ -46,4 +47,6 @@ function filterOptions() {
     return { ...data.filterOptions(), statusVocabulary: APPLICATION_STATUSES };
 }
 
-module.exports = { searchJobs, filterOptions };
+// Re-exported so `web/` can name a logged-out caller without importing from
+// `data/` directly — the dependency arrow only ever points web -> services -> data.
+module.exports = { searchJobs, filterOptions, GUEST };

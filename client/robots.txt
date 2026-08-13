@@ -1,0 +1,16 @@
+# Job Tracker
+#
+# The job search is public and meant to be indexed. Everything that belongs to
+# one person is not — and "disallow" is a request, not a lock. The real
+# protection is that /api/applications returns 401 without a session; this file
+# only keeps well-behaved crawlers from wasting requests on pages that would
+# render empty for them anyway.
+
+User-agent: *
+Allow: /
+Allow: /index.html
+Disallow: /tracker.html
+Disallow: /login.html
+Disallow: /api/
+
+Sitemap: https://job-tracker.fly.dev/sitemap.xml

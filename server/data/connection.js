@@ -13,7 +13,41 @@ const path = require('path');
 // Tests that need real rows (pagination, ordering) set JT_DB_PATH=':memory:'
 // before requiring anything in server/data/ — the app itself never sets this,
 // so `node server/main.js` and the web server always use the real file.
-const dbPath = process.env.JT_DB_PATH || path.join(__dirname, '..', '..', 'jobtracker.db');
+const dbPath = process.env.JT_DB_PATH || path.join(__dirname, '..', '..', 'jobtrail.db');
+
+/**
+ * The project was called "Job Tracker" before it was called JobTrail, and the
+ * database file was named after it.
+ *
+ * Renaming the constant above without this would not throw, would not warn, and
+ * would not lose the old file — it would quietly create an empty one beside it.
+ * The app would start perfectly, report zero jobs, and every saved application
+ * would appear to have been deleted. Silent success on the wrong file is the
+ * worst possible failure here, and it is indistinguishable from a first run.
+ *
+ * So: adopt the old file once, if and only if there is no new one to conflict
+ * with. Skipped entirely when JT_DB_PATH is set — an explicit path is an
+ * instruction, not a default to second-guess, and tests use ':memory:'.
+ */
+function adoptLegacyDatabaseFile() {
+    if (process.env.JT_DB_PATH) return;
+    if (fs.existsSync(dbPath)) return;
+
+    const legacyPath = path.join(__dirname, '..', '..', 'jobtracker.db');
+    if (!fs.existsSync(legacyPath)) return;
+
+    fs.renameSync(legacyPath, dbPath);
+    // SQLite's write-ahead log and shared-memory files, if the database was not
+    // cleanly closed. Leaving them behind the old name would strand committed
+    // transactions that have not yet been folded into the main file.
+    for (const suffix of ['-wal', '-shm', '-journal']) {
+        if (fs.existsSync(legacyPath + suffix)) fs.renameSync(legacyPath + suffix, dbPath + suffix);
+    }
+    console.log(`Renamed jobtracker.db -> ${path.basename(dbPath)} (project renamed to JobTrail).`);
+}
+
+adoptLegacyDatabaseFile();
+
 const db = new Database(dbPath);
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 

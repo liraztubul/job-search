@@ -8,7 +8,10 @@
 
 const { db } = require('./connection');
 const { locationTokens, locationSearchValue, isIsraeliLocation } = require('../domain/locations');
-const { requireUser } = require('./tenancy');
+// resolveViewer, not requireUser: the job list is public, so a logged-out
+// visitor is an allowed caller here (and only here — see tenancy.js). It still
+// throws on undefined, so a forgotten user id is still a crash.
+const { resolveViewer } = require('./tenancy');
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -145,7 +148,7 @@ function clampPaging(filters) {
  * differently between two calls and a job can appear on two pages, or none.
  */
 function queryJobs(userId, filters = {}) {
-    const owner = requireUser(userId);
+    const owner = resolveViewer(userId);
     const { whereClause, params } = buildJobFilters(filters, owner);
     const { page, pageSize } = clampPaging(filters);
     const sort =
@@ -180,7 +183,7 @@ function queryJobs(userId, filters = {}) {
  * whether 21 or 21,000 more exist.
  */
 function countJobs(userId, filters = {}) {
-    const owner = requireUser(userId);
+    const owner = resolveViewer(userId);
     const { whereClause, params } = buildJobFilters(filters, owner);
 
     return db

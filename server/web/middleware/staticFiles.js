@@ -17,6 +17,12 @@ const MIME = {
     '.svg': 'image/svg+xml',
     '.ico': 'image/x-icon',
     '.png': 'image/png',
+    // Without these two, robots.txt and sitemap.xml fall through to
+    // application/octet-stream — which makes a browser download them instead of
+    // showing them, and makes crawlers skip them. A silent SEO failure: the
+    // files exist, the URLs answer 200, and nothing indexes.
+    '.txt': 'text/plain; charset=utf-8',
+    '.xml': 'application/xml; charset=utf-8',
 };
 
 function serveStatic(res, urlPath) {

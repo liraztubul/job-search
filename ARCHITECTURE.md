@@ -1,4 +1,4 @@
-# Job Tracker — Architecture & Design Decisions
+# JobTrail — Architecture & Design Decisions
 
 **Status:** Proposed
 **Date:** 2026-08-03
@@ -312,7 +312,7 @@ trade — those are old postings you'd have found by browsing anyway.
 ### ADR-006: Secrets
 
 Telegram bot token and Gmail app password are real credentials. `.env` + `dotenv`, and `.gitignore`
-must cover `.env` **and** `jobtracker.db` (which will contain your search profiles).
+must cover `.env` **and** `jobtrail.db` (which will contain your search profiles).
 
 There's no `.gitignore` in the repo right now. That's the cheapest bug to fix and the most
 embarrassing one to ship.
@@ -440,7 +440,51 @@ repository function that skips the guard turns the suite red.
   is erased on every deploy. It needs a persistent volume mounted at the path in
   `data/connection.js`, and that is a one-time configuration, not a code change.
 
-**Not built yet, and required before this is public:** self-registration and
-login wiring through services and routes, email verification, password reset,
-rate limiting on login, and a privacy policy — real personal data belonging to
-other people brings real obligations.
+**Not built yet, and required before this is public:** email verification,
+password reset, and a privacy policy — real personal data belonging to other
+people brings real obligations. Self-registration, login, and rate limiting
+on both are built; see ADR-008 for why the obvious next step for the first
+two (SMS or email one-time codes) isn't next after all.
+
+---
+
+### ADR-008: Second-factor and account-recovery codes — not SMS, not yet email
+
+**Status:** Accepted (neither built)
+**Date:** 2026-08-13
+
+**Context.** Once strangers can register, the next question is always "how do
+they prove they own the email address, and how do they get back in if they
+forget the password?" The default answer in most tutorials is "text them a
+code" or "email them a code." Neither is free to add here, for different
+reasons.
+
+**Decision: no SMS codes, ever, for this project.**
+
+| Concern | Why it rules SMS out |
+|---|---|
+| Cost | Every message costs real money (~₪0.15 in Israel). An unauthenticated "send me a code" endpoint hands an attacker a button that spends it — a wrong password guess costs CPU; a wrong phone number costs currency. |
+| Rate limiting | Doesn't remove the need for it — makes it more urgent. The failure mode of an unlimited SMS endpoint isn't a slow server, it's a bill, and Task 1's rate limiter (`server/web/middleware/rateLimit.js`) was scoped around login/register, not an SMS-sending endpoint that doesn't exist. |
+| Security | SMS is the weakest widely-deployed second factor. SIM-swap attacks are routine, and NIST (SP 800-63B) no longer recommends it as a standalone authenticator. |
+| Privacy | A phone number is personally identifying information. Collecting one adds an obligation, it doesn't remove one — the opposite of what a second factor is supposed to buy. |
+
+There is no configuration or scale at which this project should add SMS. If a
+future requirement seems to need it, that's a signal to re-read this ADR
+before writing code, not to override it quietly.
+
+**Decision: email one-time codes are worth building, but not yet — blocked on
+owning a domain.**
+
+Transactional email providers (the ones that reliably land in an inbox
+instead of spam) require verifying a domain you control DNS for. This project
+currently deploys to `*.fly.dev`, which belongs to Fly, not to this project —
+there is no DNS here to verify. Building the email flow now would mean either
+sending through a personal Gmail account (unreliable at any real volume, and
+the credentials become another secret to protect) or shipping code with no
+way to actually exercise it.
+
+**Consequence:** email verification and password reset stay on the roadmap
+(see `ROADMAP.md`) rather than in the codebase, until a custom domain exists.
+When one does, both problems are solved by the same mechanism — a signed,
+short-lived, single-use code emailed to the address on file — so this is one
+piece of work deferred, not two.

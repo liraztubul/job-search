@@ -198,6 +198,29 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
   border:1px solid var(--border-strong); border-radius:8px; white-space:nowrap;
 }
 .btn:hover { border-color:var(--accent); color:var(--accent); }
+
+/* The one red control in the interface: signing out.
+   Reusing --rejected-fg rather than inventing a new red keeps a single red in
+   the palette, so it stays meaningful — and it already has a tuned value in
+   night mode and in high-contrast mode, where a hardcoded #c00 would fail
+   contrast against a black background. */
+.btn-danger { color:var(--rejected-fg); border-color:var(--rejected-fg); background:var(--surface); }
+.btn-danger:hover { background:var(--rejected-bg); color:var(--rejected-fg); border-color:var(--rejected-fg); }
+.btn-danger:disabled { opacity:.6; cursor:progress; }
+
+/* The demo strip. Uses the accent colours rather than a warning yellow: this
+   is context, not a problem, and a site that greets you with a caution banner
+   reads as broken. */
+.demo-banner {
+  margin:0; padding:.63rem 1.25rem; font-size:.88rem; line-height:1.5;
+  background:var(--tag-accent-bg); color:var(--tag-accent-fg);
+  border-bottom:1px solid var(--border);
+}
+.demo-banner a { color:inherit; }
+
+/* Sits last in the header, after the spacer — the physical left edge in RTL. */
+#account-slot { display:flex; align-items:center; }
+#account-slot .btn { text-decoration:none; display:inline-flex; align-items:center; }
 .btn.primary {
   background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600;
 }

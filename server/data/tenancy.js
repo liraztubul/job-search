@@ -41,10 +41,44 @@ function requireUser(userId) {
     return id;
 }
 
+/**
+ * The one caller that is legitimately nobody: a logged-out visitor reading the
+ * public job list.
+ *
+ * `job_snapshots` is a shared table, but the search query LEFT JOINs
+ * `applications` onto it to show "you already applied to this" — so it takes a
+ * user id even though the jobs themselves belong to everyone.
+ *
+ * A guest has no applications, and the honest answer is a row with no status.
+ * The tempting shortcut is a second SQL statement without the join. That would
+ * mean two WHERE clauses that must stay identical forever, and the one nobody
+ * runs in development is the one that rots — the same drift `buildJobFilters`
+ * exists to prevent between queryJobs and countJobs.
+ *
+ * So a guest is instead given an id that is real enough for SQL and can never
+ * match a row: account ids are positive, this one isn't. Same statement, same
+ * join, every application row fails `a.user_id = @owner`, and the columns come
+ * back NULL because they are genuinely empty — not because a branch skipped them.
+ *
+ * Deliberately NOT accepted by `requireUser`. Writing to a personal table as
+ * GUEST stays a crash; only reads that already tolerate an empty join may opt
+ * in, and only by naming GUEST explicitly. `undefined` still throws.
+ */
+const GUEST = Symbol('guest');
+const GUEST_OWNER_ID = -1;
+
+/**
+ * @param {unknown|typeof GUEST} userId
+ * @returns {number} a real account id, or a sentinel that matches no row
+ */
+function resolveViewer(userId) {
+    return userId === GUEST ? GUEST_OWNER_ID : requireUser(userId);
+}
+
 /** Tables whose every row belongs to exactly one account. */
 const PERSONAL_TABLES = ['applications', 'search_profiles', 'notifications_sent'];
 
 /** Tables shared by everyone: the job market is the same for all accounts. */
 const SHARED_TABLES = ['watched_companies', 'job_snapshots', 'users'];
 
-module.exports = { requireUser, PERSONAL_TABLES, SHARED_TABLES };
+module.exports = { requireUser, resolveViewer, GUEST, GUEST_OWNER_ID, PERSONAL_TABLES, SHARED_TABLES };

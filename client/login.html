@@ -4,16 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>כניסה — Job Tracker</title>
+<title>כניסה — JobTrail</title>
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
 <header class="site-header">
-  <h1>Job Tracker</h1>
+  <h1>JobTrail</h1>
 </header>
 
 <main style="max-width:26rem">
+  <!-- Local: setup instructions. Demo: an explanation for a visitor.
+       Same server state, two different readers — see `demo` in /api/session. -->
   <div class="empty" id="accounts-off" hidden style="margin-bottom:1rem;text-align:start">
     <p style="margin-top:0"><strong>חשבונות כבויים כרגע.</strong></p>
     <p>השרת רץ בלי <code>JT_SESSION_SECRET</code>, אז אין למה להתחבר והכל רץ כחשבון יחיד.
@@ -24,9 +26,19 @@
     <p style="margin-bottom:0"><em>אפשר לעבור בין כניסה להרשמה בכפתור למטה כדי לראות את שני המסכים.</em></p>
   </div>
 
+  <div class="empty" id="demo-notice" hidden style="margin-bottom:1rem;text-align:start">
+    <p style="margin-top:0"><strong>זו גרסת הדגמה — הרשמה מושבתת כאן.</strong></p>
+    <p>השרת החינמי שמארח את ההדגמה מקבל מערכת קבצים חדשה בכל הפעלה מחדש,
+       ולכן אין לו איפה לשמור חשבון. טופס שמקבל סיסמה ומאבד אותה שעה אחר כך
+       גרוע יותר מטופס שאומר את זה מראש.</p>
+    <p style="margin-bottom:0"><strong>חיפוש המשרות עובד במלואו</strong> — סינון, חיפוש חופשי ועימוד.
+       מעקב ההגשות האישי קיים בגרסה המלאה שרצה מקומית מול קובץ אמיתי.</p>
+    <p style="margin-bottom:0"><em>המסכים למטה מוצגים כדי שאפשר יהיה לראות אותם; שליחה תחזיר שגיאה.</em></p>
+  </div>
+
   <form class="card" id="login-form">
     <h2 style="margin-top:0" id="form-title">כניסה</h2>
-    <p class="results-note" id="hint">כל חשבון רואה רק את מעקב ההגשות שלו.</p>
+    <p class="results-note" id="hint">חיפוש המשרות פתוח לכולם. חשבון נדרש רק כדי לשמור אילו משרות הגשת.</p>
 
     <div class="field" style="margin-top:1rem">
       <label for="email">אימייל</label>
@@ -72,6 +84,16 @@ function showError(message) {
   $('error').textContent = message;
 }
 
+// A lockout with no stated end reads as a broken site, so this always says
+// when the visitor may try again — never just "too many attempts".
+function formatRetryMessage(retryAfterSec) {
+  const seconds = Number(retryAfterSec) || 0;
+  if (seconds <= 0) return 'יותר מדי ניסיונות. נסי שוב עוד רגע.';
+  if (seconds < 60) return `יותר מדי ניסיונות. נסי שוב בעוד ${seconds} שניות.`;
+  const minutes = Math.ceil(seconds / 60);
+  return `יותר מדי ניסיונות. נסי שוב בעוד כ-${minutes} דקות.`;
+}
+
 // Only the banner is conditional on accounts being off; the button itself
 // stays enabled. A disabled button with only a hover tooltip for an
 // explanation produces zero feedback on click — this way an attempt to
@@ -84,7 +106,7 @@ fetch('/api/session')
       return;
     }
     if (!session.authRequired) {
-      $('accounts-off').hidden = false;
+      $(session.demo ? 'demo-notice' : 'accounts-off').hidden = false;
     }
   })
   .catch(() => {});
@@ -101,7 +123,7 @@ $('toggle-mode').addEventListener('click', () => {
   $('password').autocomplete = registering ? 'new-password' : 'current-password';
   $('hint').textContent = registering
     ? `לפחות ${MIN_PASSWORD_LENGTH} תווים. אין כרגע שחזור סיסמה, אז בחרי משהו שתזכרי.`
-    : 'כל חשבון רואה רק את מעקב ההגשות שלו.';
+    : 'חיפוש המשרות פתוח לכולם. חשבון נדרש רק כדי לשמור אילו משרות הגשת.';
 
   $('confirm-field').hidden = !registering;
   $('password-confirm').required = registering;
@@ -147,9 +169,17 @@ $('login-form').addEventListener('submit', async (event) => {
     return;
   }
 
+  const body = await response.json().catch(() => ({}));
+
+  if (response.status === 429) {
+    showError(formatRetryMessage(body.retryAfterSec));
+    $('password').value = '';
+    $('password-confirm').value = '';
+    return;
+  }
+
   // The server's wording is the honest one — it deliberately does not say
   // whether the email exists.
-  const body = await response.json().catch(() => ({}));
   showError(ERROR_TRANSLATIONS[body.error] || body.error || 'משהו השתבש.');
   $('password').value = '';
   $('password-confirm').value = '';

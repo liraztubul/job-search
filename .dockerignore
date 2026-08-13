@@ -1,0 +1,21 @@
+# node_modules is the important one: it holds a better-sqlite3 compiled for
+# Windows. Copying it into a Linux image would silently shadow the one the
+# Dockerfile just built correctly.
+node_modules
+
+# Personal data and secrets. Neither belongs in an image that gets pushed to a
+# registry — jobtrail.db holds saved search profiles and application history.
+jobtrail.db
+jobtrail.db-*
+.env
+
+# data/manual/ is deliberately NOT ignored — those are job listings for
+# companies that block scraping (Rafael), and the manual adapter throws if its
+# file is missing. Excluding them would make that company fail every scrape.
+
+.git
+.gitignore
+tests
+*.md
+tools/probe-bodies
+tools/sniff-output

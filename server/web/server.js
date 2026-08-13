@@ -70,7 +70,7 @@ const server = http.createServer((req, res) => {
 if (require.main === module) {
     server.listen(PORT, HOST, () => {
         const { total } = data.filterOptions();
-        console.log(`\nJob Tracker UI running at http://localhost:${PORT}`);
+        console.log(`\nJobTrail UI running at http://localhost:${PORT}`);
         console.log(`${total} jobs in the database.`);
         if (total === 0) console.log('Empty — run `node server/main.js` first to collect some.');
 

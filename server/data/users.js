@@ -35,4 +35,17 @@ function countUsers() {
     return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 }
 
-module.exports = { findUserByEmail, findUserById, createUser, countUsers, normalizeEmail };
+/** Used to silently upgrade a legacy or under-cost hash on successful login —
+ * see `needsRehash` in web/middleware/auth.js. */
+function updateUserPasswordHash(id, passwordHash) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+}
+
+module.exports = {
+    findUserByEmail,
+    findUserById,
+    createUser,
+    countUsers,
+    updateUserPasswordHash,
+    normalizeEmail,
+};

@@ -11,7 +11,7 @@
  */
 
 const data = require('../data');
-const { hashPassword, verifyPassword } = require('../web/middleware/auth');
+const { hashPassword, verifyPassword, needsRehash } = require('../web/middleware/auth');
 
 // Deliberately loose: an address either reaches its owner or it doesn't, and no
 // regex settles that. Verification is what proves an address, and that's the
@@ -21,9 +21,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 10;
 
 /**
- * @returns {{ok: true, userId: number} | {ok: false, error: string}}
+ * @returns {Promise<{ok: true, userId: number} | {ok: false, error: string}>}
  */
-function register({ email, password } = {}) {
+async function register({ email, password } = {}) {
     const address = data.normalizeEmail(email);
 
     if (!EMAIL_RE.test(address)) return { ok: false, error: 'that does not look like an email address' };
@@ -32,7 +32,8 @@ function register({ email, password } = {}) {
     }
 
     try {
-        return { ok: true, userId: data.createUser({ email: address, passwordHash: hashPassword(password) }) };
+        const passwordHash = await hashPassword(password);
+        return { ok: true, userId: data.createUser({ email: address, passwordHash }) };
     } catch (err) {
         // The UNIQUE index is the check, not a prior SELECT — a pre-check races
         // with a second signup submitted at the same moment.
@@ -42,9 +43,9 @@ function register({ email, password } = {}) {
 }
 
 /**
- * @returns {{ok: true, userId: number} | {ok: false, error: string}}
+ * @returns {Promise<{ok: true, userId: number} | {ok: false, error: string}>}
  */
-function authenticate({ email, password } = {}) {
+async function authenticate({ email, password } = {}) {
     const user = data.findUserByEmail(email);
 
     // One message for both "no such account" and "wrong password". Telling them
@@ -54,13 +55,21 @@ function authenticate({ email, password } = {}) {
     if (!user) {
         // Hash anyway, so a missing account doesn't answer measurably faster
         // than a wrong password does.
-        hashPassword(String(password || ''));
+        await hashPassword(String(password || ''));
         return rejection;
     }
 
-    return verifyPassword(String(password || ''), user.password_hash)
-        ? { ok: true, userId: user.id }
-        : rejection;
+    const valid = await verifyPassword(String(password || ''), user.password_hash);
+    if (!valid) return rejection;
+
+    // The one moment the plaintext is available — silently move a legacy or
+    // under-cost hash up to the current parameters instead of waiting for a
+    // password reset flow that doesn't exist yet.
+    if (needsRehash(user.password_hash)) {
+        data.updateUserPasswordHash(user.id, await hashPassword(password));
+    }
+
+    return { ok: true, userId: user.id };
 }
 
 module.exports = { register, authenticate, MIN_PASSWORD_LENGTH };

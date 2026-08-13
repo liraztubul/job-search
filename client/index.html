@@ -4,7 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>חיפוש משרות — Job Tracker</title>
+<title>חיפוש משרות היי-טק בישראל — JobTrail</title>
+
+<!-- SEO. Google reads this page's HTML with JavaScript disabled on the first
+     pass, so the title and description below are the only things guaranteed to
+     be indexed — the job list itself arrives by fetch() after load. That is why
+     the description describes the *service*, not the current results. -->
+<meta name="description"
+      content="חיפוש משרות ישירות מאתרי הקריירה של חברות בישראל — אמזון, גוגל, אנבידיה, מובילאיי, אלביט ועוד. סינון לפי מיקום, ניסיון והיקף משרה, ומעקב אחרי ההגשות שלך.">
+<link rel="canonical" href="https://jobtrail.fly.dev/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="JobTrail — משרות היי-טק ישירות מאתרי החברות">
+<meta property="og:description"
+      content="משרות מאתרי הקריירה עצמם, בלי לוחות מודעות ובלי עיכוב. סינון לפי מיקום, ניסיון והיקף משרה.">
+<meta property="og:locale" content="he_IL">
+
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -12,10 +26,9 @@
 <a class="skip-link" href="#results">דלג לתוצאות</a>
 
 <header class="site-header">
-  <h1>Job Tracker</h1>
+  <h1>JobTrail</h1>
   <nav class="main-nav" aria-label="ניווט ראשי">
     <a href="index.html" aria-current="page">חיפוש משרות</a>
-    <a href="login.html">חשבון</a>
     <a href="tracker.html">מעקב הגשות</a>
   </nav>
   <span class="spacer"></span>
@@ -24,6 +37,10 @@
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
     <span id="theme-label">מצב לילה</span>
   </button>
+  <!-- Sits after the spacer, so it lands on the physical left edge in RTL.
+       The link is the no-JS default; ui.js swaps it for a logout button when
+       the server says someone is signed in. -->
+  <div id="account-slot"><a class="btn" href="login.html">התחברות</a></div>
 </header>
 
 <main>

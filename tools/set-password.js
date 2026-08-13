@@ -27,9 +27,13 @@ if (password.length < 12) {
     process.exit(1);
 }
 
-console.log('\nAdd these to .env (never commit it):\n');
-console.log(`JT_PASSWORD_HASH=${hashPassword(password)}`);
-console.log(`JT_SESSION_SECRET=${crypto.randomBytes(32).toString('hex')}`);
-console.log('\nAnd when the server sits behind HTTPS, add:\n');
-console.log('JT_BEHIND_HTTPS=1');
-console.log('\nThe server picks these up on start. Without them there is no login.\n');
+async function main() {
+    console.log('\nAdd these to .env (never commit it):\n');
+    console.log(`JT_PASSWORD_HASH=${await hashPassword(password)}`);
+    console.log(`JT_SESSION_SECRET=${crypto.randomBytes(32).toString('hex')}`);
+    console.log('\nAnd when the server sits behind HTTPS, add:\n');
+    console.log('JT_BEHIND_HTTPS=1');
+    console.log('\nThe server picks these up on start. Without them there is no login.\n');
+}
+
+main();

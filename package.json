@@ -1,5 +1,5 @@
 {
-  "name": "job-tracker",
+  "name": "jobtrail",
   "version": "1.0.0",
   "description": "Watches company career pages and notifies on new matching jobs",
   "main": "server/main.js",

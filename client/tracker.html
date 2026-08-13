@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>מעקב הגשות — Job Tracker</title>
+<title>מעקב הגשות — JobTrail</title>
+<!-- Personal data. Nothing here should ever reach a search result. -->
+<meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -12,11 +14,10 @@
 <a class="skip-link" href="#results">דלג לטבלה</a>
 
 <header class="site-header">
-  <h1>Job Tracker</h1>
+  <h1>JobTrail</h1>
   <nav class="main-nav" aria-label="ניווט ראשי">
     <a href="index.html">חיפוש משרות</a>
     <a href="tracker.html" aria-current="page">מעקב הגשות</a>
-    <a href="login.html">חשבון</a>
   </nav>
   <span class="spacer"></span>
   <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false">
@@ -24,6 +25,7 @@
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
     <span id="theme-label">מצב לילה</span>
   </button>
+  <div id="account-slot"><a class="btn" href="login.html">התחברות</a></div>
 </header>
 
 <main>

@@ -1,6 +1,6 @@
 // Isolated in-memory DB — must be set before anything in server/data/ is
 // required, connection.js reads it exactly once at module load. Every other
-// test file that touches the real jobtracker.db runs in its own child
+// test file that touches the real jobtrail.db runs in its own child
 // process under node --test, so this has no effect on them.
 process.env.JT_DB_PATH = ':memory:';
 

@@ -61,15 +61,53 @@ function applyTheme(theme) {
 }
 
 /**
- * Show who is signed in, and a way out.
+ * A one-line strip under the header, on the public demo only.
  *
- * Only appears when the server says accounts are on. With accounts off there is
- * nobody to be signed in as, and a "log out" button that does nothing is worse
- * than no button.
+ * Someone arriving from a CV needs to know two things within a second: the job
+ * data is real, and the missing login is a hosting constraint rather than a
+ * half-finished feature. Left unsaid, a visitor reasonably concludes the
+ * account system was never built.
+ *
+ * Deliberately not dismissible and deliberately not a modal — it is one line of
+ * context, not an interruption, and it should still be there on the second page
+ * view when the question actually occurs to someone.
+ */
+function showDemoBanner() {
+  if (document.getElementById('demo-banner')) return;
+
+  const banner = el('p', { id: 'demo-banner', className: 'demo-banner' });
+  banner.append(
+    el('strong', { textContent: 'גרסת הדגמה. ' }),
+    document.createTextNode(
+      'המשרות אמיתיות ונאספו מאתרי הקריירה של החברות. הרשמה ומעקב הגשות מושבתים כאן — ' +
+        'השרת החינמי לא שומר קבצים בין הפעלות. '
+    ),
+    el('a', { href: 'login.html', textContent: 'הסבר מלא' })
+  );
+
+  const header = document.querySelector('.site-header');
+  if (header) header.after(banner);
+}
+
+/**
+ * The account control in the top-left corner.
+ *
+ * One slot, three honest states — never a button that lies about what it does:
+ *
+ *   signed in        red "התנתקות"   — the only destructive control in the
+ *                                      header, and the only red thing in the UI
+ *   signed out       "התחברות"       — the HTML default, already in the page
+ *   accounts off     nothing         — running locally as a single account;
+ *                                      a logout button with no session to end
+ *                                      would do nothing and say otherwise
+ *
+ * Red is doing real work here rather than decoration: it is reserved for the
+ * one action that throws away state. Colour alone never carries meaning, so the
+ * word "התנתקות" says the same thing for anyone who cannot distinguish it.
  */
 async function initSessionNav() {
-  const nav = document.querySelector('.main-nav');
-  if (!nav) return;
+  const slot = $('account-slot');
+  if (!slot) return;
 
   let session;
   try {
@@ -78,16 +116,31 @@ async function initSessionNav() {
     return; // server down; the page already says so elsewhere
   }
 
-  if (!session.authRequired || !session.authenticated) return;
+  if (!session.authRequired) {
+    slot.replaceChildren();
+    if (session.demo) showDemoBanner();
+    return;
+  }
 
-  const logout = el('button', { type: 'button', className: 'btn', textContent: 'התנתקי' });
-  logout.style.marginInlineStart = '.5rem';
-  logout.addEventListener('click', async () => {
-    await fetch('/api/logout', { method: 'POST' }).catch(() => {});
-    location.replace('login.html');
+  if (!session.authenticated) return; // the default "התחברות" link is correct
+
+  const logout = el('button', {
+    type: 'button',
+    className: 'btn btn-danger',
+    textContent: 'התנתקות',
   });
 
-  nav.after(logout);
+  logout.addEventListener('click', async () => {
+    // Disabled immediately: a second click while the first is in flight logs
+    // out twice and races the redirect.
+    logout.disabled = true;
+    await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+    // replace(), not href: going "back" to a page rendered while signed in
+    // would show stale personal data from the browser's cache.
+    location.replace('index.html');
+  });
+
+  slot.replaceChildren(logout);
 }
 
 function initUI() {

@@ -1,0 +1,60 @@
+# Render blueprint — the public demo of JobTrail.
+#
+# Render reads this from the repository and builds the Dockerfile on every push
+# to the default branch. No CLI, no local Docker, no credit card.
+#
+# WHAT THIS DEPLOYMENT IS, AND IS NOT
+#
+# It is a live, browsable copy of the job search: real listings, real filters,
+# real pagination.
+#
+# It is not a place to keep an account. Render's free tier gives a container
+# with no persistent disk — the filesystem is rebuilt from the image on every
+# deploy and every wake from sleep. A registration form here would accept a
+# password, appear to work, and lose the account without an error. So accounts
+# are switched off (see JT_DEMO below) rather than offered and quietly broken.
+#
+# The full version, with accounts and application tracking, runs locally against
+# a real file — see README.md.
+
+services:
+  - type: web
+    name: jobtrail
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt        # closest free region to Israel
+    healthCheckPath: /api/meta
+
+    envVars:
+      # Render injects its own PORT; the server already honours it.
+      - key: HOST
+        value: 0.0.0.0
+
+      # The listings that ship inside the image (tools/make-demo-db.js builds
+      # it). Writes during a session are fine and are discarded on restart,
+      # which is the intended behaviour for a demo rather than a compromise.
+      - key: JT_DB_PATH
+        value: /app/demo.db
+
+      # Render terminates TLS at its edge, so Node sees plain HTTP. Without
+      # this the session cookie would not be marked Secure.
+      - key: JT_BEHIND_HTTPS
+        value: "1"
+
+      # Requests arrive through Render's proxy, so the client address is in
+      # X-Forwarded-For. Without this every visitor shares one apparent IP and
+      # the login rate limiter would lock out everyone at once.
+      - key: JT_TRUST_PROXY
+        value: "1"
+
+      # Changes the wording on the login page from developer setup notes to an
+      # explanation aimed at a visitor. It does not switch accounts off by
+      # itself — the absence of JT_SESSION_SECRET does that.
+      - key: JT_DEMO
+        value: "1"
+
+      # Deliberately NOT set: JT_SESSION_SECRET.
+      # Without it, auth.js reports accounts as unavailable and registration is
+      # refused with a clear message. Setting it here would turn on a login
+      # whose accounts vanish at the next restart.

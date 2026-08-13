@@ -1,5 +1,5 @@
 /**
- * One-time setup: create jobtracker.db and put one working company in it.
+ * One-time setup: create jobtrail.db and put one working company in it.
  *
  * Goes through server/db like everything else. It used to open its own
  * connection and run schema.sql by hand, which meant it skipped the column
