@@ -33,6 +33,24 @@ RUN npm ci --omit=dev
 # ---------- stage 2: run ----------
 FROM node:22-slim
 
+# The system's list of trusted certificate authorities.
+#
+# It is easy to assume this is already there — it is in the full node image, and
+# the toolchain stage above installs it. But that stage is thrown away, and
+# `slim` ships without it. Nothing notices until the app makes its first
+# outbound TLS connection.
+#
+# That connection is the database. libsql reaches Turso over HTTPS and verifies
+# the certificate against this store; with an empty store it cannot confirm the
+# server is who it claims to be, and refuses rather than trusting blindly:
+#
+#   InvalidTlsConfiguration: no valid native root CA certificates found
+#
+# The same store is what lets the adapters fetch career pages over HTTPS, so
+# omitting it breaks scraping too — just later, and less obviously.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=build /app/node_modules ./node_modules
