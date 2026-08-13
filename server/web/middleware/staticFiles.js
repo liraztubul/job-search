@@ -41,7 +41,15 @@ function serveStatic(res, urlPath) {
             res.end('Not found');
             return;
         }
-        res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+        const headers = { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' };
+        // A page a browser is free to restore instantly from bfcache on "back"
+        // is a page that can show personal data (an application list rendered
+        // into the DOM before logout) to whoever presses back after logging
+        // out — no-store is what makes a page ineligible for bfcache at all,
+        // in every major browser. CSS/JS/images carry nothing personal and are
+        // worth letting the browser actually cache.
+        if (path.extname(filePath) === '.html') headers['Cache-Control'] = 'no-store';
+        res.writeHead(200, headers);
         res.end(content);
     });
 }

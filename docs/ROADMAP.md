@@ -59,6 +59,37 @@ substitute a different page's rows for the one that was actually requested.
 
 ---
 
+## Password reset and registration email confirmation — done
+
+**Status: fixed.** There was no way back into an account: a forgotten
+password lost it permanently, and this doc originally listed the fix as
+blocked on owning a custom domain, on the assumption that a transactional
+email provider needs DNS you control. That assumption turned out to be wrong
+for the volume this app actually sends at — see the corrected note under
+"Not planned yet" below.
+
+Both flows share one mechanism (`server/services/verificationService.js`): a
+32-byte random token, only its SHA-256 hash ever stored, single use, and
+compared with `crypto.timingSafeEqual` against the small set of recently
+issued tokens rather than a `WHERE token_hash = ?` lookup — the whole point
+being that a database leak hands over nothing usable. Requesting a reset
+answers identically, in the same shape, whether or not the address is
+registered, the same care the login handler already took.
+
+A reset now also bumps a `session_epoch` on the account and embeds it in
+every signed session cookie, so resetting a password signs out every other
+session at the same moment — there was previously no way to revoke a
+cookie once issued. Registration confirmation is deliberately **non-blocking**:
+an unconfirmed account can sign in and use the site fully. A hard block would
+be the more common design, and it's worth being explicit about why this app
+doesn't do that yet: there is no support inbox, so a bounced or delayed
+confirmation email would lock a real person out of an account they legitimately
+created, with no way to appeal. Blocking becomes worth it once there's
+somewhere for that appeal to go, or once unconfirmed accounts turn out to be
+a real abuse vector in practice — neither is true yet.
+
+---
+
 ## First-run onboarding
 
 A new account currently lands on every job from every watched company, which
@@ -106,7 +137,7 @@ emits `company:start` / `company:fetched` / `company:failed` / `job:new` /
 **Planned:** `POST /api/scan` that runs a cycle and streams progress with
 Server-Sent Events (not WebSockets — see the Protocols section of
 `CLAUDE.md`), showing which company is being checked, how many jobs came
-back, and which failed and why. Since `better-sqlite3` allows one writer, a
+back, and which failed and why. Since `libsql` allows one writer, a
 scan already in progress should make a second request return `409` with the
 current progress instead of starting a second one. Done means one button
 refreshes the data, the process is visible while it runs, and a failure names
@@ -199,9 +230,11 @@ Nothing is ever sent — see ARCHITECTURE.md §4.5 for the outbox design this is
 waiting on: a `notification_queue` table written by the matcher and drained by
 a separate sender, so a notification is recorded before it's sent rather than
 lost on a network blip. First channel planned is in-app only — a bell icon
-with unread matches. No email, no SMTP credentials, no new dependency; email
-can come later through the same queue (see "Not planned yet" below for why
-that's specifically blocked on a custom domain).
+with unread matches. No SMTP credentials, no new dependency; email can come
+later through the same queue and the same Brevo account already wired up for
+password reset (`server/services/emailService.js`) — no longer blocked on a
+custom domain, see "Password reset and registration email confirmation"
+above.
 
 ---
 
@@ -217,11 +250,16 @@ attacks are routine, and NIST no longer recommends it as a standalone
 authenticator — and a phone number is personally identifying information,
 which adds privacy obligations rather than removing them.
 
-**Email one-time codes / password reset — worth building, not yet started.**
-Transactional email providers require a domain with DNS you control, and
-`*.fly.dev` belongs to Fly, not to this project. This becomes the next real
-piece of auth work once a custom domain exists, and it would solve both email
-verification and password reset with one mechanism.
+**Corrected: email one-time codes did *not* need a custom domain after all.**
+This section used to say password reset and email confirmation were blocked
+on owning a domain, because transactional email providers are usually
+described as needing DNS you control. That's true for *domain
+authentication* (bulk senders, and better deliverability at any volume), but
+not for *single sender verification* — proving you own one mailbox by
+pasting back a code emailed to it, which is all the volume this app sends
+needs. See "Password reset and registration email confirmation" above for
+what shipped, and `server/services/emailService.js` for the provider
+comparison this correction is based on.
 
 ---
 

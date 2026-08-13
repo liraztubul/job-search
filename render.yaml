@@ -1,21 +1,18 @@
-# Render blueprint — the public demo of JobTrail.
+# Render blueprint — the live JobTrail site.
 #
 # Render reads this from the repository and builds the Dockerfile on every push
 # to the default branch. No CLI, no local Docker, no credit card.
 #
-# WHAT THIS DEPLOYMENT IS, AND IS NOT
+# WHERE THE DATA LIVES
 #
-# It is a live, browsable copy of the job search: real listings, real filters,
-# real pagination.
+# Render's free tier gives a container with no disk that survives a restart, so
+# nothing may be stored in the container itself. The database is a hosted
+# libSQL database (Turso), reached over the network by the same synchronous
+# code that opens a local file during development — see server/data/connection.js.
 #
-# It is not a place to keep an account. Render's free tier gives a container
-# with no persistent disk — the filesystem is rebuilt from the image on every
-# deploy and every wake from sleep. A registration form here would accept a
-# password, appear to work, and lose the account without an error. So accounts
-# are switched off (see JT_DEMO below) rather than offered and quietly broken.
-#
-# The full version, with accounts and application tracking, runs locally against
-# a real file — see README.md.
+# That is what makes accounts real here: a registration on this site is written
+# to a database that outlives the container, rather than to a filesystem that is
+# discarded the next time the service sleeps.
 
 services:
   - type: web
@@ -27,34 +24,46 @@ services:
     healthCheckPath: /api/meta
 
     envVars:
-      # Render injects its own PORT; the server already honours it.
       - key: HOST
         value: 0.0.0.0
 
-      # The listings that ship inside the image (tools/make-demo-db.js builds
-      # it). Writes during a session are fine and are discarded on restart,
-      # which is the intended behaviour for a demo rather than a compromise.
-      - key: JT_DB_PATH
-        value: /app/demo.db
-
       # Render terminates TLS at its edge, so Node sees plain HTTP. Without
-      # this the session cookie would not be marked Secure.
+      # this the session cookie would not be marked Secure and would travel the
+      # public internet readable by anyone on the path.
       - key: JT_BEHIND_HTTPS
         value: "1"
 
-      # Requests arrive through Render's proxy, so the client address is in
+      # Requests arrive through Render's proxy, so the visitor's address is in
       # X-Forwarded-For. Without this every visitor shares one apparent IP and
-      # the login rate limiter would lock out everyone at once.
+      # five failed logins by one person would lock out everybody.
       - key: JT_TRUST_PROXY
         value: "1"
 
-      # Changes the wording on the login page from developer setup notes to an
-      # explanation aimed at a visitor. It does not switch accounts off by
-      # itself — the absence of JT_SESSION_SECRET does that.
-      - key: JT_DEMO
-        value: "1"
+      # --- the secrets, entered in the Render dashboard ---
+      #
+      # sync: false means "ask me for this value, do not read it from the
+      # repository". They are secrets: this file is public, and the auth token
+      # grants full read/write on the database while the session secret can be
+      # used to forge a login cookie for any account.
 
-      # Deliberately NOT set: JT_SESSION_SECRET.
-      # Without it, auth.js reports accounts as unavailable and registration is
-      # refused with a clear message. Setting it here would turn on a login
-      # whose accounts vanish at the next restart.
+      # Turning this on is what enables registration and login. Generate with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: JT_SESSION_SECRET
+        sync: false
+
+      - key: TURSO_DATABASE_URL
+        sync: false
+
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+
+      # Password reset / registration confirmation mail — see
+      # server/services/emailService.js for the two-minute setup (one
+      # verified sender mailbox, no domain). Leave both unset and the
+      # reset/confirm links print to the log instead of sending — the app
+      # still works, only the mail delivery is missing.
+      - key: BREVO_API_KEY
+        sync: false
+
+      - key: JT_MAIL_FROM
+        sync: false

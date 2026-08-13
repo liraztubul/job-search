@@ -12,6 +12,8 @@ module.exports = {
     ...require('./applications'),
     ...require('./notifications'),
     ...require('./users'),
+    ...require('./passwordResets'),
+    ...require('./emailConfirmations'),
     ...require('./tenancy'),
     ...require('../domain/locations'),
 };

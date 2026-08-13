@@ -13,4 +13,4 @@ Disallow: /tracker.html
 Disallow: /login.html
 Disallow: /api/
 
-Sitemap: https://job-tracker.fly.dev/sitemap.xml
+Sitemap: https://jobtrail-0xhs.onrender.com/sitemap.xml

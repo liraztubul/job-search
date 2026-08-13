@@ -4,7 +4,7 @@ Watches company career pages, diffs against the last known state, matches new
 postings against saved search profiles, and serves a local web UI for browsing
 them and tracking applications.
 
-Design, decisions and build phases: **ARCHITECTURE.md**. Read it before making
+Design, decisions and build phases: **docs/ARCHITECTURE.md**. Read it before making
 structural changes — it explains why things are split the way they are.
 
 ## Layout
@@ -113,7 +113,7 @@ node tools/sniff.js elbit         # for SPAs: real browser, captures the XHRs
 npm install --save-dev playwright && npx playwright install chromium
 ```
 
-Only dependency is `better-sqlite3`. `fetch` is Node's built-in (Node 18+).
+Only dependency is `libsql`. `fetch` is Node's built-in (Node 18+).
 
 ## Verifying a change
 
@@ -140,7 +140,7 @@ Guessing at field names is the main way this project wastes an hour.
   routes, not in tools.
 - **`domain/` is pure.** No `require` of data, services or web from inside it.
 - **Never send a notification inline.** Insert a row into `notification_queue`
-  and let a sender drain it. See ARCHITECTURE.md §4.5 for why.
+  and let a sender drain it. See docs/ARCHITECTURE.md §4.5 for why.
 - **Filterable fields are normalized at the adapter boundary** into the closed
   vocabularies in `server/domain/vocabulary.js`. A value outside them makes the
   job invisible in the UI filter. Unknown input must become `null`, never a guess.
@@ -151,7 +151,7 @@ Guessing at field names is the main way this project wastes an hour.
 
 ## Gotchas
 
-- `better-sqlite3` is **synchronous**. Don't `await` db calls.
+- `libsql` is **synchronous**. Don't `await` db calls.
 - It's also a **native module** — `node_modules` is not portable between
   Windows and Linux. Install on the machine that runs it.
 - Development is on **Windows**. Don't assume bash-only shell syntax.
@@ -164,7 +164,7 @@ Guessing at field names is the main way this project wastes an hour.
 ## Current state
 
 Working end to end for Amazon, Google, Mobileye, Elbit and NVIDIA. Notifications are still
-console-only — `notification_queue` from ARCHITECTURE.md §4.5 is not built yet.
+console-only — `notification_queue` from docs/ARCHITECTURE.md §4.5 is not built yet.
 Fifteen adapters registered: amazon, apple, ashby, checkpoint, comeet, eightfold,
 elbit, google, greenhouse, ibm, mobileye, oracle-hcm, smartrecruiters, workday,
 wp-careers.
@@ -184,7 +184,7 @@ Wix is a dead end too, but not from bot protection: careers.wix.com's job
 data only exists behind a per-page-load signed session token (Wix's own
 "wixcode-pub" instance JWT), with no postings in the server-rendered HTML and
 no public API. Getting it would mean running a real browser at scrape time,
-which breaks the project's "only dependency is better-sqlite3" rule. Not
+which breaks the project's "only dependency is libsql" rule. Not
 added.
 CyberArk was acquired by Palo Alto Networks since this file was last
 updated — cyberark.com/careers now redirects straight to a PANW marketing
@@ -197,7 +197,7 @@ search is also bot-gated (hCaptcha + Reblaze-family bot management via
 Perfdrive, loaded by its own `ShowSearchResultGuestBlocker.js`). Not a way in
 either — don't re-try it hoping it's just a robots.txt courtesy block.
 
-**Pagination (see ROADMAP.md) is done.** `queryJobs`/`countJobs`
+**Pagination (see docs/ROADMAP.md) is done.** `queryJobs`/`countJobs`
 in `server/data/jobs.js` share one `buildJobFilters()` so they can't drift
 apart, both take `userId` first, and `ORDER BY` always ends in `, j.id DESC` —
 `first_seen_at` alone isn't unique (673 Elbit rows share one timestamp) and

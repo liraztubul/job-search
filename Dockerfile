@@ -2,7 +2,7 @@
 #
 # WHY A DOCKERFILE AND NOT FLY'S AUTO-DETECTION
 #
-# better-sqlite3 is a native module: it compiles C++ against the exact Node
+# libsql is a native module: it compiles C++ against the exact Node
 # version and libc of the machine it is installed on. The node_modules folder on
 # a Windows laptop is not portable to a Linux container — it will either fail to
 # load or crash at the first query. Building inside the image is what guarantees
@@ -15,7 +15,7 @@
 # ---------- stage 1: compile ----------
 FROM node:22-slim AS build
 
-# node-gyp needs these to compile better-sqlite3. They exist only in this stage.
+# node-gyp needs these to compile libsql. They exist only in this stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -40,12 +40,6 @@ COPY package*.json ./
 COPY server ./server
 COPY client ./client
 COPY tools ./tools
-
-# The seeded listings for the public demo, if one has been built
-# (`node tools/make-demo-db.js`). The `package*.json` prefix is not redundant:
-# a COPY whose only pattern matches nothing fails the build, and this keeps the
-# image buildable for deployments that use a mounted volume instead.
-COPY package*.json demo.db* ./
 
 # JT_DB_PATH is deliberately NOT set here.
 #

@@ -5,8 +5,9 @@
  *   node tools/probe-all.js microsoft    probe just one
  *
  * For each company it tries the candidate URLs in order and stops at the first
- * one that actually returns jobs. Raw bodies are saved under tools/probe-bodies/
- * and a summary is written to tools/probe-report.md.
+ * one that actually returns jobs. Raw bodies are saved under
+ * tools/output/probe-bodies/ and a summary is written to
+ * tools/output/probe-report.md — all scratch output, gitignored.
  *
  * Run this on YOUR machine. Two things differ from a sandbox and both matter:
  * your IP is Israeli (several of these geo-block) and this sends a real browser
@@ -19,8 +20,8 @@ const fs = require('fs');
 const path = require('path');
 const { probeUrl } = require('./probe');
 
-const BODIES = path.join(__dirname, 'probe-bodies');
-const REPORT = path.join(__dirname, 'probe-report.md');
+const BODIES = path.join(__dirname, 'output', 'probe-bodies');
+const REPORT = path.join(__dirname, 'output', 'probe-report.md');
 const POLITE_DELAY_MS = 1500;
 
 /**
@@ -197,7 +198,7 @@ async function main() {
     console.log(`Found a usable source for ${found}/${results.length} companies.`);
     console.log(`Report:     ${REPORT}`);
     console.log(`Raw bodies: ${BODIES}`);
-    console.log('\nPaste probe-report.md back to Claude to get the adapters written.\n');
+    console.log('\nPaste tools/output/probe-report.md back to Claude to get the adapters written.\n');
 }
 
 main();

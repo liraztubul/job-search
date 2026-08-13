@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "Watches company career pages and notifies on new matching jobs",
   "main": "server/main.js",
+  "homepage": "https://jobtrail-0xhs.onrender.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liraztubul/job-search.git"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -14,11 +19,11 @@
     "add": "node tools/add-company.js",
     "probe": "node tools/probe.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["job-search", "web-scraping", "sqlite", "zero-dependency", "israel"],
+  "author": "Liraz Tubul",
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^13.0.2"
+    "libsql": "^0.5.29"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

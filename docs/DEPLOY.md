@@ -1,92 +1,102 @@
 # Putting JobTrail on the internet
 
-Two routes, and they produce different things.
+Two routes. Both are free and both keep accounts; they differ in where the
+database sits and what you have to hand over to get it.
 
-| | **Render** (below) | **Fly.io** (further down) |
+| | **Render + Turso** (below) | **Fly.io** (further down) |
 |---|---|---|
-| Credit card | not required | required for identity, not charged |
-| Accounts on the live site | no | yes |
-| Persistent disk | none | 1 GB volume |
+| Credit card | never asked for | required for identity, not charged |
+| Database lives | Turso's servers | a volume on your own app |
 | Deploys by | pushing to GitHub | `fly deploy` |
 | Sleeps when idle | yes, ~50 s to wake | yes, a few seconds |
 
-Render is the free route, and the trade it makes is real: its free tier gives a
-container with **no disk that survives a restart**. Listings can ship inside the
-image, so the search works perfectly. Accounts cannot — so rather than offer a
-registration form that takes a password and loses it, the deployment switches
-accounts off and says why. The full version, tracking included, runs locally.
+Render's free tier gives a container with **no disk that survives a restart**,
+so nothing may be stored inside it. The database is therefore hosted: Turso runs
+libSQL, which is SQLite, and `libsql` speaks to it with the same synchronous API
+that opens a local file. Nothing in `server/data/` knows the difference.
 
 ---
 
-# Route A — Render (free, no credit card)
+# Route A — Render + Turso (free, no credit card)
 
-## Step 1 — build the demo database
+## Step 1 — regenerate the lockfile
 
-The container has no disk, so the job listings travel inside the image.
+The driver changed from `better-sqlite3` to `libsql`, and `package-lock.json`
+still names the old one. The Docker build runs `npm ci`, which fails outright
+when the lockfile and `package.json` disagree — better than installing the
+wrong thing, but it fails at build time rather than here.
 
 ```powershell
-node tools/make-demo-db.js
+npm install
 ```
 
-It copies your database, empties every personal table (accounts, applications,
-saved searches, notification history), runs `VACUUM` so deleted rows are not
-merely marked free but actually overwritten, then reopens the file and verifies
-the tables are empty before telling you it worked. If anything survives, it
-deletes the file rather than leave one that is named as though it is safe.
+## Step 2 — create the database
 
-Expect roughly 0.8 MB, and read its output — it lists exactly what it kept.
+1. [turso.tech](https://turso.tech) → sign up with GitHub. No card, no payment screen.
+2. Create a database. Any name; the region closest to Frankfurt keeps it near
+   the Render container.
+3. Copy two values from its page: the **database URL** (`libsql://...`) and a
+   **token**.
 
-## Step 2 — put the repository on GitHub
+## Step 3 — push your listings up
+
+A new database is empty, and an empty database looks exactly like a broken one.
+
+```powershell
+$env:TURSO_DATABASE_URL="libsql://your-db.turso.io"
+$env:TURSO_AUTH_TOKEN="..."
+node tools/push-to-turso.js
+```
+
+It applies the schema and copies companies and jobs. It never copies accounts,
+applications or saved searches in either direction — those belong to whoever
+created them, on whichever database they used.
+
+Re-run it any time after a local scrape to refresh the listings.
+
+## Step 4 — push the code
 
 ```powershell
 git add -A
-git add -f demo.db          # -f because .gitignore excludes *.db
-git commit -m "JobTrail: rate limiting, async hashing, public demo"
+git commit -m "Store data in a hosted libSQL database so accounts persist"
+git push
 ```
 
-Create an empty repository on github.com, then:
+Check nothing personal went with it — this should print nothing:
 
 ```powershell
-git remote add origin https://github.com/<your-username>/jobtrail.git
-git branch -M main
-git push -u origin main
+git ls-files | findstr /i ".env jobtrail.db jobtracker.db"
 ```
 
-Check that `.env` and `jobtrail.db` did **not** go up: `git ls-files | findstr /i "\.env jobtrail.db"` should print nothing.
+## Step 5 — give Render the three secrets
 
-## Step 3 — connect Render
-
-1. [render.com](https://render.com) → sign up **with GitHub**. No card.
-2. **New → Blueprint**
-3. Pick the repository. Render finds `render.yaml` and reads the whole
-   configuration from it — the Dockerfile, the region, every environment
-   variable. Nothing to fill in by hand.
-4. **Apply**, then wait. The first build compiles `better-sqlite3` from source
-   and takes several minutes.
-
-The address is `https://jobtrail.onrender.com` (Render appends a suffix if the
-name is taken). Put it in the first line of `README.md`.
-
-Every `git push` to `main` redeploys automatically.
-
-## Refreshing the listings later
-
-Render cannot scrape on its own — the container has nowhere to keep the result.
-Re-run the scrape locally and push the new snapshot:
+`render.yaml` marks them `sync: false`, so Render will prompt for each one
+rather than read it from the public repository.
 
 ```powershell
-node server/main.js
-node tools/make-demo-db.js
-git add -f demo.db && git commit -m "refresh demo data" && git push
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
+
+| Variable | Value |
+|---|---|
+| `JT_SESSION_SECRET` | the string just printed |
+| `TURSO_DATABASE_URL` | `libsql://...` from step 2 |
+| `TURSO_AUTH_TOKEN` | the token from step 2 |
+
+`JT_SESSION_SECRET` is what turns accounts on. Without it the server refuses
+registration and runs as a single account. Keep a copy: changing it later
+invalidates every session cookie and signs everyone out.
+
+Then **Apply** / **Manual Deploy**.
 
 ## What to check once it is live
 
-- The blue strip under the header explaining it is a demo
+- The log says `Using hosted database at libsql://...` and then a job count
+- Register an account, mark a job as applied
+- **Wait for the service to sleep, then load it again and log back in.** The
+  application is still there. That single check is the whole point of this
+  route — everything else worked on the previous deployment too.
 - `/robots.txt` and `/sitemap.xml` return plain text, not a download
-- Filters, free-text search and paging all work
-- The first visit after an idle hour takes ~50 seconds — that is the free tier
-  waking up, not a fault
 
 ---
 
@@ -107,16 +117,17 @@ five wrong passwords per account per 15 minutes, twenty per IP, three
 registrations per IP per hour. That was the only item on this list that was a
 security hole rather than a missing feature.
 
-Three product gaps remain:
+**Password reset and registration email confirmation are both built** —
+`server/services/verificationService.js`, sent through Brevo
+(`server/services/emailService.js`). Set `BREVO_API_KEY` and `JT_MAIL_FROM`
+(see that file's header for the two-minute setup: no custom domain needed,
+just verifying one sender mailbox) or leave them unset and the reset/confirm
+links print to the server log instead — the whole flow is testable with no
+account at any provider.
 
-- **no email verification** — anyone can register with an address that isn't theirs
-- **no password reset** — a forgotten password is a lost account, permanently
-- **no privacy policy** — required by GDPR/Israeli privacy law once you hold other people's data
-
-None of these block you from deploying. Password reset is the one that will bite
-first, and it needs a custom domain before it can be built — a transactional
-email provider has to verify DNS records you control, and `*.fly.dev` belongs to
-Fly. See `ROADMAP.md`.
+One product gap remains: **no privacy policy** — required by GDPR/Israeli
+privacy law once you hold other people's data. Doesn't block deploying, but
+should happen before real strangers register. See `ROADMAP.md`.
 
 ---
 
@@ -195,7 +206,7 @@ account.
 fly deploy
 ```
 
-The first build takes a few minutes — it compiles `better-sqlite3` from C++
+The first build takes a few minutes — it compiles `libsql` from C++
 source inside the container, which is exactly why there's a Dockerfile instead
 of letting Fly guess. After that, layer caching makes it fast.
 

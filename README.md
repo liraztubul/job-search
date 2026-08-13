@@ -1,6 +1,21 @@
 # JobTrail — Company Career Page Watcher
 
-**Live:** [jobtrail.fly.dev](https://jobtrail.fly.dev)
+### ▶ [Open the live site](https://jobtrail-0xhs.onrender.com)
+
+[![Live](https://img.shields.io/badge/live-jobtrail.onrender.com-2ea44f?style=for-the-badge)](https://jobtrail-0xhs.onrender.com)
+[![Node](https://img.shields.io/badge/node-18%2B-333?style=for-the-badge)](https://nodejs.org)
+[![Dependencies](https://img.shields.io/badge/runtime%20dependencies-1-blue?style=for-the-badge)](package.json)
+
+> **First load takes about 50 seconds.** The free host sleeps when nobody is
+> using it; that wait is the machine waking up, not the site failing.
+
+The live site is the real thing: real listings, full search and filtering,
+and real accounts — register and track applications there directly. The
+database is a hosted libSQL instance (Turso), not a file inside the
+container, so it survives the free host putting the service to sleep and
+waking it back up.
+
+---
 
 Watches company career pages directly (no LinkedIn, no delay), diffs against the
 last known state, matches new postings against saved search profiles, and
@@ -84,7 +99,7 @@ Each company row has an `adapter_type`. Nothing outside `server/adapters/` knows
 how a given site is scraped — it calls `getCurrentJobs()` and gets a clean list
 of `RawJob`. Supporting a new platform is one new file; nothing else changes.
 
-Design decisions and their trade-offs: **ARCHITECTURE.md**.
+Design decisions and their trade-offs: **docs/ARCHITECTURE.md**.
 
 The search page is paginated (20 jobs/page) — `GET /api/jobs` returns
 `{ jobs, page, pageSize, totalMatching, totalPages }`, not a raw array. The
@@ -124,39 +139,44 @@ HOST=0.0.0.0 JT_BEHIND_HTTPS=1 node server/web/server.js
 Put a TLS terminator in front (Fly, Railway, Caddy, or a Cloudflare Tunnel).
 Don't do TLS inside Node.
 
-Once accounts are on, two more things matter for a deployment strangers can
+Once accounts are on, a few more things matter for a deployment strangers can
 reach:
 
 - **Login and registration are rate-limited** per IP and per submitted
-  account, independently — `server/web/middleware/rateLimit.js`. On Fly, set
-  `JT_TRUST_PROXY=1` (already in `fly.toml`) so the limiter reads the real
-  visitor address from `Fly-Client-IP` instead of Fly's own proxy address.
+  account, independently — `server/web/middleware/rateLimit.js`. Both
+  `fly.toml` and `render.yaml` set `JT_TRUST_PROXY=1` so the limiter reads
+  the visitor's real address from the platform's proxy header instead of the
+  platform's own.
 - **Passwords are hashed with `crypto.scrypt`, asynchronously**, so hashing
   doesn't freeze the event loop for every other visitor while it runs — see
   `server/web/middleware/auth.js`. Measured with `node tools/bench-auth.js`
   (developer machine: Windows, 13th Gen Intel Core i7-1355U, 12 logical CPUs —
-  not the 512MB Fly VM this deploys to):
+  not the deployed machine size; re-run there before trusting these numbers):
 
   | | single hash | max event-loop delay, 10 concurrent logins |
   |---|---|---|
   | before (sync, N=2^14) | ~30ms | ~290ms |
   | after (async, N=2^16) | ~110ms | ~19ms |
 
-  Re-run the benchmark on the actual deployed machine size before trusting
-  these numbers in production.
+- **Password reset and registration email confirmation** are both built —
+  `server/services/verificationService.js`, mailed through a single verified
+  Brevo sender (`server/services/emailService.js`), no custom domain needed.
+  With no `BREVO_API_KEY` set, the reset/confirm links print to the server
+  log instead of sending, which is how local development is meant to work.
+  Resetting a password signs out every other session for that account
+  (`session_epoch` in `server/web/middleware/auth.js`).
 
 ## Not built yet
 
 - Notifications — matches are printed to the console; the outbox design is in
-  ARCHITECTURE.md §4.5
+  `docs/ARCHITECTURE.md` §4.5
 - Scheduling — one manual run, no cron yet
 - The sanity gate (§4.2) and closure detection (§4.3)
 - `ComeetAdapter` has never been checked against a live response
-- Email verification, password reset — see ARCHITECTURE.md's ADRs on why SMS
-  codes were rejected and why email codes are waiting on a custom domain
+- A privacy policy — required before real strangers' data is held at scale
 
-See `ROADMAP.md` for the fuller list of known limitations and their intended
-fixes.
+See `docs/ROADMAP.md` for the fuller list of known limitations and their
+intended fixes.
 
 ## Adding the screenshots
 

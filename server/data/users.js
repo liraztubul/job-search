@@ -41,11 +41,25 @@ function updateUserPasswordHash(id, passwordHash) {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
 }
 
+/**
+ * @returns {number|null} the account's current session_epoch, or null if the
+ *   account no longer exists (a cookie signed for a since-deleted account).
+ *
+ * Called on every authenticated request (see `auth.js`'s `verifySession`), so
+ * this is deliberately a single-column lookup rather than `findUserById` —
+ * the smallest query that answers the one question a session check needs.
+ */
+function getSessionEpoch(id) {
+    const row = db.prepare('SELECT session_epoch FROM users WHERE id = ?').get(id);
+    return row ? row.session_epoch : null;
+}
+
 module.exports = {
     findUserByEmail,
     findUserById,
     createUser,
     countUsers,
     updateUserPasswordHash,
+    getSessionEpoch,
     normalizeEmail,
 };

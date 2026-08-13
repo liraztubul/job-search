@@ -5,7 +5,17 @@
  * one connection and one place where the schema is applied.
  */
 
-const Database = require('better-sqlite3');
+// libsql, not better-sqlite3.
+//
+// Same synchronous API, same SQL, same file format — it opens a database
+// better-sqlite3 wrote — but it can also talk to a hosted libSQL database over
+// the network. That is the whole reason for the swap: the free host runs a
+// container with no disk that survives a restart, so the file has to live
+// somewhere the container is not.
+//
+// It replaces better-sqlite3 rather than joining it, so the project still has
+// exactly one runtime dependency (ADR-002).
+const Database = require('libsql');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -46,9 +56,56 @@ function adoptLegacyDatabaseFile() {
     console.log(`Renamed jobtracker.db -> ${path.basename(dbPath)} (project renamed to JobTrail).`);
 }
 
-adoptLegacyDatabaseFile();
+/**
+ * Local file, or a hosted libSQL database when one is configured.
+ *
+ * The remote form is used only when TURSO_DATABASE_URL is present, so nothing
+ * about running this on your own machine changes: no account, no network, same
+ * file on the same disk. Production sets the two variables and the same code
+ * reaches a database that outlives the container.
+ */
+function openDatabase() {
+    const url = process.env.TURSO_DATABASE_URL;
+    if (!url) {
+        adoptLegacyDatabaseFile();
+        return new Database(dbPath);
+    }
 
-const db = new Database(dbPath);
+    // A URL with no token is a misconfiguration that fails later, at the first
+    // query, as an opaque auth error. Better to say so at startup.
+    if (!process.env.TURSO_AUTH_TOKEN) {
+        throw new Error('TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is not — the connection would be rejected.');
+    }
+
+    console.log(`Using hosted database at ${url.replace(/\/\/.*@/, '//')}`);
+    return new Database(url, { authToken: process.env.TURSO_AUTH_TOKEN });
+}
+
+const db = openDatabase();
+
+/**
+ * libsql's `.get()` attaches a `_metadata` key (query duration) that
+ * better-sqlite3 never returned. `.all()` does not. That inconsistency is
+ * invisible until a single row is passed straight to `sendJson` — which
+ * `POST /api/application` does — and then a timing field appears in the API
+ * response for no reason anyone can trace.
+ *
+ * Stripping it here, once, keeps the swap genuinely transparent: no repository
+ * function, service or route has to know which driver is underneath. Fixing it
+ * at each call site instead would mean the next `.get()` anyone writes
+ * reintroduces it.
+ */
+const nativePrepare = db.prepare.bind(db);
+db.prepare = (sql) => {
+    const statement = nativePrepare(sql);
+    const nativeGet = statement.get.bind(statement);
+    statement.get = (...args) => {
+        const row = nativeGet(...args);
+        if (row && typeof row === 'object' && '_metadata' in row) delete row._metadata;
+        return row;
+    };
+    return statement;
+};
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
 /**
@@ -76,6 +133,18 @@ for (const [column, definition] of [
     ['job_code', 'TEXT'],
 ]) {
     ensureColumn('job_snapshots', column, definition);
+}
+
+// Password reset (session_epoch) and registration email confirmation
+// (email_verified_at) landed after accounts were already live in production —
+// a NOT NULL column needs a default to be added to a table with existing
+// rows, which is why session_epoch gets one and email_verified_at (no sane
+// non-null default for "has this address been proven") stays nullable.
+for (const [column, definition] of [
+    ['session_epoch', 'INTEGER NOT NULL DEFAULT 0'],
+    ['email_verified_at', 'TEXT'],
+]) {
+    ensureColumn('users', column, definition);
 }
 
 /**

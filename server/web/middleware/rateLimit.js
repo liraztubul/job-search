@@ -32,6 +32,8 @@
  * directly so tests can move time forward without sleeping for real minutes.
  */
 
+const crypto = require('crypto');
+
 const DEFAULT_CAP = 5000;
 
 /**
@@ -150,6 +152,15 @@ function getClientIp(req) {
 
 const normalizeAccountKey = (email) => String(email || '').trim().toLowerCase();
 
+/** The "account" counter for a token-based route (password-reset confirm,
+ * email confirm) — there is no account identifier in the request body to key
+ * on, so the token itself stands in. Hashed rather than kept as the raw
+ * token, matching the "never store the raw token" rule elsewhere in this
+ * flow — this is only ever a short-lived in-memory Map key, but there is no
+ * reason for a raw token to exist in one more place than it has to. */
+const tokenRateLimitKey = (token) =>
+    crypto.createHash('sha256').update(String(token || '')).digest('hex');
+
 /**
  * Named policies for the two endpoints that need this. Numbers are a starting
  * point, not measured: 5 failed attempts/account/15min and 20/IP/15min for
@@ -171,6 +182,33 @@ const POLICIES = {
         // Unlike login, every registration attempt counts here (success
         // included) — the risk is spam account creation, not a guessed
         // password, so there is no "successful attempt" to exempt.
+    },
+    // Requesting a reset SENDS MAIL — that costs the app's Brevo quota and
+    // can be aimed at a stranger's inbox as harassment, which is a step
+    // worse than a wasted login attempt. Every request counts, same as
+    // register: the response is identical either way, so there is no
+    // "failed attempt" to distinguish.
+    passwordResetRequest: {
+        windowMs: 60 * 60 * 1000,
+        ip: { max: 10 },
+        account: { max: 3 }, // keyed by the normalized email in the request body
+    },
+    // Confirm has no email in its body ({ token, password }) — the "account"
+    // counter here is keyed by a hash of the submitted token instead (see
+    // routes/index.js). That still gives the same two-counter shape: one
+    // token being retried a lot is throttled without capping every other
+    // reset in flight from the same IP.
+    passwordResetConfirm: {
+        windowMs: 60 * 60 * 1000,
+        ip: { max: 20 },
+        account: { max: 5 },
+    },
+    // Same token-keyed shape as passwordResetConfirm, for the registration
+    // confirmation link.
+    confirmEmail: {
+        windowMs: 60 * 60 * 1000,
+        ip: { max: 20 },
+        account: { max: 5 },
     },
 };
 
@@ -208,5 +246,6 @@ module.exports = {
     createAuthRateLimiter,
     getClientIp,
     normalizeAccountKey,
+    tokenRateLimitKey,
     POLICIES,
 };

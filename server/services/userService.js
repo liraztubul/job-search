@@ -5,9 +5,11 @@
  * statement; deciding what a valid account looks like is neither, and it is the
  * part that has to stay correct when a second way in appears (a CLI, a test).
  *
- * NOT HERE YET, and required before real strangers use this:
- * email verification, password reset, and rate limiting on sign-in. See
- * ARCHITECTURE.md ADR-007.
+ * Password reset and registration email confirmation live in
+ * services/verificationService.js, not here — they're a different question
+ * ("prove you hold this token") from "is this email/password combination
+ * valid," even though both end up changing a row in `users`. See
+ * docs/ARCHITECTURE.md ADR-007.
  */
 
 const data = require('../data');
@@ -33,7 +35,8 @@ async function register({ email, password } = {}) {
 
     try {
         const passwordHash = await hashPassword(password);
-        return { ok: true, userId: data.createUser({ email: address, passwordHash }) };
+        const userId = data.createUser({ email: address, passwordHash });
+        return { ok: true, userId, email: address };
     } catch (err) {
         // The UNIQUE index is the check, not a prior SELECT — a pre-check races
         // with a second signup submitted at the same moment.
@@ -72,4 +75,14 @@ async function authenticate({ email, password } = {}) {
     return { ok: true, userId: user.id };
 }
 
-module.exports = { register, authenticate, MIN_PASSWORD_LENGTH };
+/**
+ * @param {number|null} userId
+ * @returns {{emailVerified: boolean}|null} null when nobody is signed in
+ */
+function currentUserInfo(userId) {
+    if (!userId) return null;
+    const user = data.findUserById(userId);
+    return user ? { emailVerified: Boolean(user.email_verified_at) } : null;
+}
+
+module.exports = { register, authenticate, currentUserInfo, MIN_PASSWORD_LENGTH };

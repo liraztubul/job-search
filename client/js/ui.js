@@ -61,28 +61,22 @@ function applyTheme(theme) {
 }
 
 /**
- * A one-line strip under the header, on the public demo only.
+ * A one-line strip under the header, telling a signed-in account its
+ * registration email hasn't been confirmed yet.
  *
- * Someone arriving from a CV needs to know two things within a second: the job
- * data is real, and the missing login is a hosting constraint rather than a
- * half-finished feature. Left unsaid, a visitor reasonably concludes the
- * account system was never built.
- *
- * Deliberately not dismissible and deliberately not a modal — it is one line of
- * context, not an interruption, and it should still be there on the second page
- * view when the question actually occurs to someone.
+ * Non-blocking on purpose (see docs/ROADMAP.md): the account works fully
+ * either way, so this is context, not a warning — same reasoning as the
+ * accent colour here rather than a caution yellow. Deliberately not
+ * dismissible: it should still be visible on the second page view, when the
+ * confirmation email has had time to actually arrive.
  */
-function showDemoBanner() {
-  if (document.getElementById('demo-banner')) return;
+function showUnverifiedNotice() {
+  if (document.getElementById('unverified-banner')) return;
 
-  const banner = el('p', { id: 'demo-banner', className: 'demo-banner' });
+  const banner = el('p', { id: 'unverified-banner', className: 'notice-banner' });
   banner.append(
-    el('strong', { textContent: 'גרסת הדגמה. ' }),
-    document.createTextNode(
-      'המשרות אמיתיות ונאספו מאתרי הקריירה של החברות. הרשמה ומעקב הגשות מושבתים כאן — ' +
-        'השרת החינמי לא שומר קבצים בין הפעלות. '
-    ),
-    el('a', { href: 'login.html', textContent: 'הסבר מלא' })
+    el('strong', { textContent: 'עדיין לא אישרת את כתובת האימייל שלך. ' }),
+    document.createTextNode('שלחנו קישור אישור בהרשמה — החשבון עובד במלואו גם בלעדיו.')
   );
 
   const header = document.querySelector('.site-header');
@@ -118,11 +112,12 @@ async function initSessionNav() {
 
   if (!session.authRequired) {
     slot.replaceChildren();
-    if (session.demo) showDemoBanner();
     return;
   }
 
   if (!session.authenticated) return; // the default "התחברות" link is correct
+
+  if (session.emailVerified === false) showUnverifiedNotice();
 
   const logout = el('button', {
     type: 'button',

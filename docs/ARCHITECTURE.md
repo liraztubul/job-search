@@ -227,7 +227,7 @@ at exactly `:00` every hour from the same IP is the pattern that gets you blocke
 | Ops burden | zero | nonzero |
 | Fit for N1/N3 | exact | overkill |
 
-**Decision:** SQLite (`better-sqlite3`, already installed). It's synchronous, which removes a whole
+**Decision:** SQLite (`libsql`, already installed). It's synchronous, which removes a whole
 class of async bugs from your DB layer.
 
 **Consequence to accept:** one writer at a time. Your scheduler must not run two cycles
@@ -448,10 +448,12 @@ two (SMS or email one-time codes) isn't next after all.
 
 ---
 
-### ADR-008: Second-factor and account-recovery codes — not SMS, not yet email
+### ADR-008: Second-factor and account-recovery codes — not SMS, and email after all
 
-**Status:** Accepted (neither built)
-**Date:** 2026-08-13
+**Status:** Accepted. SMS: rejected outright. Email: built (2026-08-13, see
+the correction below) — `server/services/verificationService.js` and
+`server/services/emailService.js`.
+**Date:** 2026-08-13, corrected same day
 
 **Context.** Once strangers can register, the next question is always "how do
 they prove they own the email address, and how do they get back in if they
@@ -472,19 +474,27 @@ There is no configuration or scale at which this project should add SMS. If a
 future requirement seems to need it, that's a signal to re-read this ADR
 before writing code, not to override it quietly.
 
-**Decision: email one-time codes are worth building, but not yet — blocked on
-owning a domain.**
+**Decision, corrected: email one-time codes do not need a custom domain, and
+are built.**
 
-Transactional email providers (the ones that reliably land in an inbox
-instead of spam) require verifying a domain you control DNS for. This project
-currently deploys to `*.fly.dev`, which belongs to Fly, not to this project —
-there is no DNS here to verify. Building the email flow now would mean either
-sending through a personal Gmail account (unreliable at any real volume, and
-the credentials become another secret to protect) or shipping code with no
-way to actually exercise it.
+This ADR originally said email verification and password reset were blocked
+on owning a domain, on the reasoning that a transactional email provider
+needs DNS you control. That's true of *domain authentication* — the setup
+that gets you into inboxes reliably at real volume — but it is not true of
+*single sender verification*: proving you own one mailbox by pasting back a
+code emailed to it, no DNS involved. Checked against Brevo, Resend, SendGrid
+and Mailjet's current docs (see `server/services/emailService.js` for the
+comparison and why Brevo was chosen); at the volume this app actually sends
+— password resets and confirmation links, not a marketing list — single
+sender verification is exactly enough.
 
-**Consequence:** email verification and password reset stay on the roadmap
-(see `ROADMAP.md`) rather than in the codebase, until a custom domain exists.
-When one does, both problems are solved by the same mechanism — a signed,
-short-lived, single-use code emailed to the address on file — so this is one
-piece of work deferred, not two.
+Both problems ended up solved by the one mechanism this ADR predicted: a
+random, single-use, time-limited token, its SHA-256 hash stored and never
+the token itself, mailed as a link. See `server/services/verificationService.js`.
+
+**Consequence:** no custom domain was needed after all — `*.onrender.com`
+and `*.fly.dev` were never actually blocking this, a wrong assumption is.
+The real remaining constraint is Brevo's single-sender volume ceiling
+(300 emails/day on the free tier) — fine for password resets and
+confirmations, not fine for a marketing list or a notification digest sent
+to every account on every match. Re-visit if usage ever approaches that.

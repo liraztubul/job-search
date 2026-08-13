@@ -161,7 +161,7 @@ async function main() {
         process.exit(1);
     }
     console.log(`\nGET ${url}\n`);
-    const result = await probeUrl(url, { saveTo: path.join(__dirname, 'probe-output.txt') });
+    const result = await probeUrl(url, { saveTo: path.join(__dirname, 'output', 'probe-output.txt') });
     printResult(result);
 }
 

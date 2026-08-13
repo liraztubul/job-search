@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>איפוס סיסמה — JobTrail</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>JobTrail</h1>
+</header>
+
+<main style="max-width:26rem">
+  <div class="empty" id="no-token" hidden style="margin-bottom:1rem;text-align:start">
+    <p style="margin:0">הקישור הזה לא תקין. אפשר לבקש קישור חדש מ<a href="login.html">דף הכניסה</a>.</p>
+  </div>
+
+  <form class="card" id="reset-form">
+    <h2 style="margin-top:0">בחירת סיסמה חדשה</h2>
+    <p class="results-note" id="hint">לפחות 10 תווים.</p>
+
+    <div class="field" style="margin-top:1rem">
+      <label for="password">סיסמה חדשה</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" required>
+    </div>
+
+    <div class="field" style="margin-top:.75rem">
+      <label for="password-confirm">אימות סיסמה</label>
+      <input type="password" id="password-confirm" name="password-confirm" autocomplete="new-password" required>
+    </div>
+
+    <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
+    <p class="results-note" id="success" role="status" aria-live="polite" style="min-height:1.5rem"></p>
+
+    <button type="submit" class="btn primary" style="width:100%" id="submit">שמירת סיסמה</button>
+  </form>
+</main>
+
+<script src="js/ui.js"></script>
+<script>
+'use strict';
+
+initUI();
+
+const MIN_PASSWORD_LENGTH = 10;
+const token = new URLSearchParams(location.search).get('token') || '';
+
+// The server's own error strings, translated the same way login.html does —
+// they're deliberately plain English because non-UI callers read them too.
+const ERROR_TRANSLATIONS = {
+  'that reset link is invalid or has expired': 'הקישור הזה לא תקין או שפג תוקפו — אפשר לבקש קישור חדש מדף הכניסה.',
+  'that reset link has already been used': 'הקישור הזה כבר נוצל — כל קישור תקף לשימוש חד-פעמי. אפשר לבקש קישור חדש.',
+};
+
+function showError(message) {
+  $('error').textContent = message;
+  $('success').textContent = '';
+}
+function showSuccess(message) {
+  $('success').textContent = message;
+  $('error').textContent = '';
+}
+
+// Same wording and math as login.html's 429 handling — a lockout with no
+// stated end reads as a broken site.
+function formatRetryMessage(retryAfterSec) {
+  const seconds = Number(retryAfterSec) || 0;
+  if (seconds <= 0) return 'יותר מדי ניסיונות. נסי שוב עוד רגע.';
+  if (seconds < 60) return `יותר מדי ניסיונות. נסי שוב בעוד ${seconds} שניות.`;
+  const minutes = Math.ceil(seconds / 60);
+  return `יותר מדי ניסיונות. נסי שוב בעוד כ-${minutes} דקות.`;
+}
+
+if (!token) {
+  $('no-token').hidden = false;
+  $('submit').disabled = true;
+}
+
+$('reset-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  showError('');
+
+  const password = $('password').value;
+
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    showError(`הסיסמה קצרה מדי — צריך לפחות ${MIN_PASSWORD_LENGTH} תווים.`);
+    $('password').focus();
+    return;
+  }
+  if (password !== $('password-confirm').value) {
+    showError('הסיסמאות אינן זהות.');
+    $('password-confirm').value = '';
+    $('password-confirm').focus();
+    return;
+  }
+
+  const response = await fetch('/api/password-reset/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  }).catch(() => null);
+
+  if (!response) {
+    showError('אין חיבור לשרת.');
+    return;
+  }
+
+  const body = await response.json().catch(() => ({}));
+
+  if (response.status === 429) {
+    showError(formatRetryMessage(body.retryAfterSec));
+    return;
+  }
+
+  if (response.ok) {
+    showSuccess('הסיסמה עודכנה, וכל שאר החיבורים לחשבון נותקו. אפשר להתחבר עכשיו.');
+    $('reset-form').hidden = true;
+    setTimeout(() => location.replace('login.html'), 2500);
+    return;
+  }
+
+  showError(ERROR_TRANSLATIONS[body.error] || body.error || 'משהו השתבש.');
+  $('password').value = '';
+  $('password-confirm').value = '';
+  $('password').focus();
+});
+</script>
+</body>
+</html>

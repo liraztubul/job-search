@@ -31,6 +31,7 @@
 
 const crypto = require('crypto');
 const { promisify } = require('util');
+const data = require('../../data');
 
 const scryptAsync = promisify(crypto.scrypt);
 
@@ -152,22 +153,39 @@ async function verifyPassword(password, stored) {
  *
  * The payload carries WHO, not just "logged in" — a session that only says
  * "authenticated" is useless the moment there is more than one account.
+ *
+ * It also carries the account's `session_epoch` at the moment this cookie
+ * was signed. There is no server-side revocation list — sessions are
+ * self-contained — so this is what lets one specific event (a password
+ * reset) invalidate every cookie signed before it: `verifySession` rejects
+ * any cookie whose embedded epoch is behind the account's current one.
  */
-function signSession(userId, expiresAtSec) {
-    const payload = `${userId}.${expiresAtSec}`;
+function signSession(userId, expiresAtSec, sessionEpoch) {
+    const payload = `${userId}.${expiresAtSec}.${sessionEpoch}`;
     const mac = crypto.createHmac('sha256', process.env.JT_SESSION_SECRET).update(payload).digest('hex');
     return `${payload}.${mac}`;
 }
 
-/** @returns {number|null} the user id this cookie proves, or null. */
+/**
+ * @returns {number|null} the user id this cookie proves, or null.
+ *
+ * The epoch check is a database read on every authenticated request — the
+ * one real cost of this design, since sessions were previously verifiable
+ * from the cookie alone with no query at all. Accepted here because a
+ * password reset that leaves old sessions alive is a worse failure than one
+ * extra indexed lookup per request. If this ever shows up in latency
+ * numbers, the fix is a short-lived in-memory cache of epochs (a stale
+ * cache just delays revocation by its TTL, it doesn't reopen it) — not
+ * dropping the check.
+ */
 function verifySession(cookieValue) {
     if (!cookieValue || !process.env.JT_SESSION_SECRET) return null;
 
     const parts = String(cookieValue).split('.');
-    if (parts.length !== 3) return null;
+    if (parts.length !== 4) return null;
 
-    const [userId, expiresAt, mac] = parts;
-    const payload = `${userId}.${expiresAt}`;
+    const [userId, expiresAt, epoch, mac] = parts;
+    const payload = `${userId}.${expiresAt}.${epoch}`;
 
     const expected = crypto
         .createHmac('sha256', process.env.JT_SESSION_SECRET)
@@ -181,7 +199,13 @@ function verifySession(cookieValue) {
     if (Number(expiresAt) <= Math.floor(Date.now() / 1000)) return null;
 
     const id = Number(userId);
-    return Number.isInteger(id) && id > 0 ? id : null;
+    if (!Number.isInteger(id) || id <= 0) return null;
+
+    const currentEpoch = data.getSessionEpoch(id);
+    if (currentEpoch === null) return null; // account no longer exists
+    if (!Number.isInteger(Number(epoch)) || Number(epoch) < currentEpoch) return null;
+
+    return id;
 }
 
 function readCookie(req, name) {
@@ -225,7 +249,8 @@ function isAuthorized(req) {
 /** Start a session for an already-authenticated user. */
 function startSession(res, userId) {
     const expiresAt = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SEC;
-    res.setHeader('Set-Cookie', sessionCookie(signSession(userId, expiresAt), SESSION_MAX_AGE_SEC));
+    const epoch = data.getSessionEpoch(userId) || 0;
+    res.setHeader('Set-Cookie', sessionCookie(signSession(userId, expiresAt, epoch), SESSION_MAX_AGE_SEC));
 }
 
 function logout(res) {

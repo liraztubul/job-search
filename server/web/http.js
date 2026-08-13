@@ -5,12 +5,23 @@
  * into each route.
  */
 
-/** Send a JSON response with the right headers. */
+/**
+ * Send a JSON response with the right headers.
+ *
+ * `Cache-Control: no-store` on every response, not just the personal ones —
+ * `GET /api/applications` and `GET /api/jobs` are both handled by this same
+ * function, and a browser is free to serve a GET response out of its disk
+ * cache with no revalidation once a page navigates back to it. Session state
+ * changes who a request is allowed to see; a cached response from before a
+ * logout doesn't know that. One flag here is simpler than deciding per route
+ * which JSON is personal enough to need it.
+ */
 function sendJson(res, status, payload) {
     const body = JSON.stringify(payload);
     res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
+        'Cache-Control': 'no-store',
     });
     res.end(body);
 }

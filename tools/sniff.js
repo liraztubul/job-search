@@ -18,14 +18,16 @@
  *   npm install --save-dev playwright
  *   npx playwright install chromium
  *
- * Output: tools/sniff-report.md  +  raw bodies in tools/probe-bodies/
+ * Output: tools/output/sniff-report.md  +  raw bodies in
+ * tools/output/probe-bodies/ — same scratch directory probe-all.js writes
+ * to, all gitignored.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const BODIES = path.join(__dirname, 'probe-bodies');
-const REPORT = path.join(__dirname, 'sniff-report.md');
+const BODIES = path.join(__dirname, 'output', 'probe-bodies');
+const REPORT = path.join(__dirname, 'output', 'sniff-report.md');
 
 /**
  * `solved: true` means the company already has a working adapter. Those are
@@ -272,7 +274,7 @@ async function main() {
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Found job-shaped responses for ${found}/${results.length} companies.`);
     console.log(`Report: ${REPORT}\n`);
-    console.log('Paste sniff-report.md back to Claude to get the adapters written.\n');
+    console.log('Paste tools/output/sniff-report.md back to Claude to get the adapters written.\n');
 }
 
 main();

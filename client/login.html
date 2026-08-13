@@ -14,8 +14,6 @@
 </header>
 
 <main style="max-width:26rem">
-  <!-- Local: setup instructions. Demo: an explanation for a visitor.
-       Same server state, two different readers — see `demo` in /api/session. -->
   <div class="empty" id="accounts-off" hidden style="margin-bottom:1rem;text-align:start">
     <p style="margin-top:0"><strong>חשבונות כבויים כרגע.</strong></p>
     <p>השרת רץ בלי <code>JT_SESSION_SECRET</code>, אז אין למה להתחבר והכל רץ כחשבון יחיד.
@@ -24,16 +22,6 @@
     <p><code>node tools/set-password.js "סיסמה ארוכה"</code></p>
     <p style="margin-bottom:0">ואז הפעילי מחדש עם המשתנים שהוא הדפיס.</p>
     <p style="margin-bottom:0"><em>אפשר לעבור בין כניסה להרשמה בכפתור למטה כדי לראות את שני המסכים.</em></p>
-  </div>
-
-  <div class="empty" id="demo-notice" hidden style="margin-bottom:1rem;text-align:start">
-    <p style="margin-top:0"><strong>זו גרסת הדגמה — הרשמה מושבתת כאן.</strong></p>
-    <p>השרת החינמי שמארח את ההדגמה מקבל מערכת קבצים חדשה בכל הפעלה מחדש,
-       ולכן אין לו איפה לשמור חשבון. טופס שמקבל סיסמה ומאבד אותה שעה אחר כך
-       גרוע יותר מטופס שאומר את זה מראש.</p>
-    <p style="margin-bottom:0"><strong>חיפוש המשרות עובד במלואו</strong> — סינון, חיפוש חופשי ועימוד.
-       מעקב ההגשות האישי קיים בגרסה המלאה שרצה מקומית מול קובץ אמיתי.</p>
-    <p style="margin-bottom:0"><em>המסכים למטה מוצגים כדי שאפשר יהיה לראות אותם; שליחה תחזיר שגיאה.</em></p>
   </div>
 
   <form class="card" id="login-form">
@@ -56,8 +44,13 @@
     </div>
 
     <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
+    <p class="results-note" id="reset-sent" role="status" aria-live="polite" style="min-height:1.5rem"></p>
 
     <button type="submit" class="btn primary" style="width:100%" id="submit">התחברי</button>
+
+    <p id="forgot-password" style="text-align:center;margin:.75rem 0 0">
+      <button type="button" class="btn-link" id="forgot-password-link">שכחתי סיסמה</button>
+    </p>
   </form>
 
   <p style="text-align:center;margin-top:1rem">
@@ -82,6 +75,11 @@ const MIN_PASSWORD_LENGTH = 10;
 
 function showError(message) {
   $('error').textContent = message;
+  $('reset-sent').textContent = '';
+}
+function showResetSent(message) {
+  $('reset-sent').textContent = message;
+  $('error').textContent = '';
 }
 
 // A lockout with no stated end reads as a broken site, so this always says
@@ -105,31 +103,51 @@ fetch('/api/session')
       location.replace('index.html');
       return;
     }
-    if (!session.authRequired) {
-      $(session.demo ? 'demo-notice' : 'accounts-off').hidden = false;
-    }
+    if (!session.authRequired) $('accounts-off').hidden = false;
   })
   .catch(() => {});
 
+// Three modes sharing one form and one email field: 'login' and 'register'
+// toggle on the button below; 'reset' — requesting a password-reset link —
+// is reached only from "שכחתי סיסמה" and always returns to 'login', never
+// to 'register', on success or cancel.
 let mode = 'login';
 
-$('toggle-mode').addEventListener('click', () => {
-  mode = mode === 'login' ? 'register' : 'login';
+function applyMode() {
   const registering = mode === 'register';
+  const resetting = mode === 'reset';
 
-  $('form-title').textContent = registering ? 'הרשמה' : 'כניסה';
-  $('submit').textContent = registering ? 'צרי חשבון' : 'התחברי';
+  $('form-title').textContent = resetting ? 'איפוס סיסמה' : registering ? 'הרשמה' : 'כניסה';
+  $('submit').textContent = resetting ? 'שליחת קישור לאיפוס' : registering ? 'צרי חשבון' : 'התחברי';
+  $('toggle-mode').hidden = resetting;
   $('toggle-mode').textContent = registering ? 'כבר יש לי חשבון — כניסה' : 'אין לי חשבון — הרשמה';
   $('password').autocomplete = registering ? 'new-password' : 'current-password';
-  $('hint').textContent = registering
-    ? `לפחות ${MIN_PASSWORD_LENGTH} תווים. אין כרגע שחזור סיסמה, אז בחרי משהו שתזכרי.`
-    : 'חיפוש המשרות פתוח לכולם. חשבון נדרש רק כדי לשמור אילו משרות הגשת.';
+  $('hint').textContent = resetting
+    ? 'נשלח לינק לאימייל שנרשם. אם הכתובת לא רשומה, לא יקרה כלום.'
+    : registering
+      ? `לפחות ${MIN_PASSWORD_LENGTH} תווים.`
+      : 'חיפוש המשרות פתוח לכולם. חשבון נדרש רק כדי לשמור אילו משרות הגשת.';
 
+  $('password').closest('.field').hidden = resetting;
+  $('password').required = !resetting;
   $('confirm-field').hidden = !registering;
   $('password-confirm').required = registering;
   if (!registering) $('password-confirm').value = '';
 
+  $('forgot-password').hidden = registering;
+  $('forgot-password-link').textContent = resetting ? 'חזרה לכניסה' : 'שכחתי סיסמה';
+
   showError('');
+}
+
+$('toggle-mode').addEventListener('click', () => {
+  mode = mode === 'login' ? 'register' : 'login';
+  applyMode();
+});
+
+$('forgot-password-link').addEventListener('click', () => {
+  mode = mode === 'reset' ? 'login' : 'reset';
+  applyMode();
 });
 
 $('login-form').addEventListener('submit', async (event) => {
@@ -151,6 +169,30 @@ $('login-form').addEventListener('submit', async (event) => {
       $('password-confirm').focus();
       return;
     }
+  }
+
+  if (mode === 'reset') {
+    const response = await fetch('/api/password-reset/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }).catch(() => null);
+
+    if (!response) {
+      showError('אין חיבור לשרת.');
+      return;
+    }
+
+    if (response.status === 429) {
+      const body = await response.json().catch(() => ({}));
+      showError(formatRetryMessage(body.retryAfterSec));
+      return;
+    }
+
+    // Same message regardless of whether the address is registered — see
+    // services/verificationService.js.
+    showResetSent('אם הכתובת רשומה במערכת, נשלח אליה קישור לאיפוס סיסמה.');
+    return;
   }
 
   const response = await fetch(mode === 'register' ? '/api/register' : '/api/login', {
