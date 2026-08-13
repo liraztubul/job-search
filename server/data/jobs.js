@@ -85,43 +85,67 @@ function upsertJobSnapshot(companyId, job) {
  * if the two built their WHERE clauses independently and drifted apart.
  *
  * `a.status` is read from `applications`, a personal table, so the join that
- * uses this clause must also carry `AND a.user_id = @owner` — the WHERE
+ * uses this clause must also carry `AND a.user_id = ?` — the WHERE
  * clause alone doesn't scope the join, that's the caller's job.
+ */
+/**
+ * POSITIONAL `?` PARAMETERS, NOT NAMED `@name` ONES
+ *
+ * This used to bind `@companyId`, `@q` and friends from an object, which is
+ * more readable and is what better-sqlite3 documents. It does not survive the
+ * remote protocol: against a hosted libSQL database the named values are not
+ * bound, every filtered comparison becomes `column = NULL`, and the query
+ * returns zero rows — no error, no warning, just an empty list.
+ *
+ * It hid for a long time because the *unfiltered* query has exactly one
+ * parameter, `owner`, and it sits in a LEFT JOIN. An unbound owner makes the
+ * join match nothing, which is precisely what a logged-out visitor should see.
+ * The page looked perfect until someone picked a company.
+ *
+ * Positional parameters work identically on both, so there is one code path
+ * again rather than one that is exercised and one that is merely hoped for.
+ *
+ * The cost is that ORDER NOW MATTERS: `owner` is bound first because
+ * `a.user_id = ?` appears in the JOIN, ahead of the WHERE clause. Both callers
+ * must keep that shape, which is why they share this function.
+ *
+ * @returns {{whereClause: string, params: unknown[]}} params[0] is always owner
  */
 function buildJobFilters(filters, owner) {
     const where = ['1 = 1'];
-    const params = { owner };
+    const params = [owner];
 
     if (filters.companyId) {
-        where.push('j.company_id = @companyId');
-        params.companyId = Number(filters.companyId);
+        where.push('j.company_id = ?');
+        params.push(Number(filters.companyId));
     }
     if (filters.employmentType) {
-        where.push('j.employment_type = @employmentType');
-        params.employmentType = filters.employmentType;
+        where.push('j.employment_type = ?');
+        params.push(filters.employmentType);
     }
     if (filters.experienceLevel) {
-        where.push('j.experience_level = @experienceLevel');
-        params.experienceLevel = filters.experienceLevel;
+        where.push('j.experience_level = ?');
+        params.push(filters.experienceLevel);
     }
     // Any one of several locations, not all of them — a job is in Tel Aviv OR
     // Haifa, never both, so "narrow to these cities" has to mean OR across the
-    // list. Each gets its own named param; LIKE values can't be bound as an array.
+    // list. One placeholder per value; a LIKE list can't be bound as an array.
     if (filters.locations && filters.locations.length) {
-        const clauses = filters.locations.map((loc, i) => {
-            const key = `location${i}`;
-            params[key] = `%${loc}%`;
-            return `j.location_search LIKE @${key}`;
+        const clauses = filters.locations.map((loc) => {
+            params.push(`%${loc}%`);
+            return 'j.location_search LIKE ?';
         });
         where.push(`(${clauses.join(' OR ')})`);
     }
     if (filters.q) {
-        where.push('(j.title LIKE @q OR j.department LIKE @q)');
-        params.q = `%${filters.q}%`;
+        // Two placeholders, so the value is pushed twice — with positional
+        // parameters a repeated value is not a repeated name.
+        where.push('(j.title LIKE ? OR j.department LIKE ?)');
+        params.push(`%${filters.q}%`, `%${filters.q}%`);
     }
     if (filters.status) {
-        where.push(filters.status === 'none' ? 'a.status IS NULL' : 'a.status = @status');
-        if (filters.status !== 'none') params.status = filters.status;
+        where.push(filters.status === 'none' ? 'a.status IS NULL' : 'a.status = ?');
+        if (filters.status !== 'none') params.push(filters.status);
     }
     if (filters.openOnly) {
         where.push('j.is_still_open = 1');
@@ -199,12 +223,12 @@ function queryJobs(userId, filters = {}) {
                     a.status, a.notes, a.applied_at AS appliedAt
                FROM job_snapshots j
                JOIN watched_companies c ON c.id = j.company_id
-               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = @owner
+               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = ?
               WHERE ${whereClause}
               ORDER BY ${sort}
               LIMIT ${limitClause(pageSize, (page - 1) * pageSize)}`
         )
-        .all(params);
+        .all(...params);
 
     return { jobs, page, pageSize };
 }
@@ -223,10 +247,10 @@ function countJobs(userId, filters = {}) {
         .prepare(
             `SELECT COUNT(*) AS n
                FROM job_snapshots j
-               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = @owner
+               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = ?
               WHERE ${whereClause}`
         )
-        .get(params).n;
+        .get(...params).n;
 }
 
 /** Distinct values actually present in the data — so the UI never offers an empty filter. */
