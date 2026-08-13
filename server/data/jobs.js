@@ -131,6 +131,39 @@ function buildJobFilters(filters, owner) {
 }
 
 /** Clamp to a page/pageSize SQLite will never choke on — 1+ and 1..100. */
+/**
+ * `LIMIT n OFFSET m`, written into the SQL rather than bound as parameters.
+ *
+ * WHY, BECAUSE THIS LOOKS LIKE THE WRONG THING TO DO
+ *
+ * Every other value in this file is a bound parameter, and that is correct:
+ * bound parameters are how untrusted input stays data instead of becoming SQL.
+ * These two are different in a way that forces the exception.
+ *
+ * SQLite is loosely typed almost everywhere — it will happily compare 1.0 to 1
+ * — but LIMIT and OFFSET are two of the few places it insists on an integer and
+ * raises "datatype mismatch" otherwise. Every JavaScript number is a double, so
+ * whether `20` arrives as INTEGER 20 or REAL 20.0 depends entirely on the
+ * driver. The native binding converts integral doubles to integers; the remote
+ * Hrana protocol sends a JSON number and SQLite sees a float and refuses.
+ *
+ * The result was a query that worked perfectly against a local file and failed
+ * on every page load against the hosted database — the same class of bug as
+ * `db.transaction()` and the missing migration columns, and the third one this
+ * deployment found.
+ *
+ * Interpolating is safe here only because these two values cannot be anything
+ * but integers: `clampPaging` truncates and clamps them, and the assertion
+ * below makes that a crash rather than an assumption if it ever stops being
+ * true. Do not copy this pattern for a value that comes from a request.
+ */
+function limitClause(pageSize, offset) {
+    if (!Number.isInteger(pageSize) || !Number.isInteger(offset) || pageSize < 1 || offset < 0) {
+        throw new Error(`limitClause: refusing to inline non-integer paging (${pageSize}, ${offset})`);
+    }
+    return `${pageSize} OFFSET ${offset}`;
+}
+
 function clampPaging(filters) {
     const page = Math.max(1, Math.trunc(Number(filters.page)) || 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(Number(filters.pageSize)) || DEFAULT_PAGE_SIZE));
@@ -169,9 +202,9 @@ function queryJobs(userId, filters = {}) {
                LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = @owner
               WHERE ${whereClause}
               ORDER BY ${sort}
-              LIMIT @pageSize OFFSET @offset`
+              LIMIT ${limitClause(pageSize, (page - 1) * pageSize)}`
         )
-        .all({ ...params, pageSize, offset: (page - 1) * pageSize });
+        .all(params);
 
     return { jobs, page, pageSize };
 }
