@@ -42,9 +42,16 @@ function searchJobs(userId, params) {
     return { jobs, page, pageSize, totalMatching, totalPages };
 }
 
-/** Everything the filter dropdowns are built from. */
-function filterOptions() {
-    return { ...data.filterOptions(), statusVocabulary: APPLICATION_STATUSES };
+/**
+ * Everything the filter dropdowns are built from.
+ * @param {number|typeof GUEST} userId
+ */
+function filterOptions(userId) {
+    // statusVocabulary is the fixed enum of possible statuses (saved/applied/
+    // interviewing/offer/rejected) — not personal data, always included.
+    // `statuses` (the per-account counts) is data.filterOptions()'s call to
+    // make, and it's the one that's actually scoped or omitted based on userId.
+    return { ...data.filterOptions(userId), statusVocabulary: APPLICATION_STATUSES };
 }
 
 // Re-exported so `web/` can name a logged-out caller without importing from

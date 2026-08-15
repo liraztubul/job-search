@@ -42,7 +42,7 @@ function originOf(req) {
 }
 
 const routes = {
-    'GET /api/meta': ({ res }) => sendJson(res, 200, jobSearch.filterOptions()),
+    'GET /api/meta': ({ res, userId }) => sendJson(res, 200, jobSearch.filterOptions(userId)),
 
     'GET /api/jobs': ({ res, url, userId }) => sendJson(res, 200, jobSearch.searchJobs(userId, url.searchParams)),
 

@@ -69,7 +69,11 @@ const server = http.createServer((req, res) => {
 
 if (require.main === module) {
     server.listen(PORT, HOST, () => {
-        const { total } = data.filterOptions();
+        // GUEST: this is a one-time startup log reading only `.total`, not a
+        // request on anyone's behalf — filterOptions() now requires a real
+        // caller for its personal-data facet, and GUEST is the sentinel that
+        // says "no account, and that's fine" (server/data/tenancy.js).
+        const { total } = data.filterOptions(data.GUEST);
         console.log(`\nJobTrail UI running at http://localhost:${PORT}`);
         console.log(`${total} jobs in the database.`);
         if (total === 0) console.log('Empty — run `node server/main.js` first to collect some.');

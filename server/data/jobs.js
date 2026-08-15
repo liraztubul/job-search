@@ -11,7 +11,7 @@ const { locationTokens, locationSearchValue, isIsraeliLocation } = require('../d
 // resolveViewer, not requireUser: the job list is public, so a logged-out
 // visitor is an allowed caller here (and only here — see tenancy.js). It still
 // throws on undefined, so a forgotten user id is still a crash.
-const { resolveViewer } = require('./tenancy');
+const { resolveViewer, requireUser, GUEST } = require('./tenancy');
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -253,8 +253,18 @@ function countJobs(userId, filters = {}) {
         .get(...params).n;
 }
 
-/** Distinct values actually present in the data — so the UI never offers an empty filter. */
-function filterOptions() {
+/**
+ * Distinct values actually present in the data — so the UI never offers an
+ * empty filter.
+ *
+ * `statuses` is the one personal facet here (application status is per
+ * account, everything else — companies, employment types, locations — is the
+ * shared job market). It is included only for a real signed-in caller, scoped
+ * to that account's own rows.
+ *
+ * @param {number|typeof GUEST} userId
+ */
+function filterOptions(userId) {
     const distinct = (column) =>
         db
             .prepare(
@@ -281,7 +291,7 @@ function filterOptions() {
         .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
         .slice(0, 60);
 
-    return {
+    const options = {
         companies: db
             .prepare(
                 `SELECT c.id, c.name, COUNT(j.id) AS count
@@ -292,11 +302,24 @@ function filterOptions() {
         employmentTypes: distinct('employment_type'),
         experienceLevels: distinct('experience_level'),
         locations,
-        statuses: db
-            .prepare('SELECT status AS value, COUNT(*) AS count FROM applications GROUP BY status')
-            .all(),
         total: db.prepare('SELECT COUNT(*) AS n FROM job_snapshots').get().n,
     };
+
+    // A logged-out visitor gets no `statuses` key at all — not an empty
+    // array, which reads identically to "you have zero tracked applications"
+    // for a real account, and not an aggregate across every account either
+    // (that was the bug this guard exists to fix: the query below used to run
+    // unconditionally with no WHERE clause, so every visitor — including
+    // guests — received application-status counts from every account
+    // combined).
+    if (userId !== GUEST) {
+        const owner = requireUser(userId);
+        options.statuses = db
+            .prepare('SELECT status AS value, COUNT(*) AS count FROM applications WHERE user_id = ? GROUP BY status')
+            .all(owner);
+    }
+
+    return options;
 }
 
 module.exports = { upsertJobSnapshot, queryJobs, countJobs, filterOptions };

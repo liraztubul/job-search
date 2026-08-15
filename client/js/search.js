@@ -65,7 +65,13 @@ function renderCompanyOptions(query) {
 }
 
 function openCompanyListbox() {
-  renderCompanyOptions($('f-company').value);
+  // Once a company is picked, the input holds its display label ("Amazon
+  // Israel (154)"), not a search query. Filtering the list BY that label (as
+  // reopening used to) matches nothing — no company name starts with its own
+  // full label plus a count — so switching companies meant clearing the field
+  // back to "all companies" first. Show the full list instead; typing from
+  // here narrows it exactly as it always did.
+  renderCompanyOptions(selectedCompanyId ? '' : $('f-company').value);
   $('f-company-listbox').hidden = false;
   $('f-company').setAttribute('aria-expanded', 'true');
 }
@@ -107,7 +113,14 @@ function initCompanyCombobox() {
   const input = $('f-company');
   const listbox = $('f-company-listbox');
 
-  input.addEventListener('focus', openCompanyListbox);
+  input.addEventListener('focus', () => {
+    openCompanyListbox();
+    // A company is already picked: select its label so the very next
+    // keystroke replaces it instead of appending to it — typing "g" right
+    // after focusing should filter for companies starting with "g", not for
+    // one starting with "Amazon Israel (154)g".
+    if (selectedCompanyId) input.select();
+  });
   input.addEventListener('input', () => {
     // Typing invalidates whatever was picked before, until they choose again —
     // a half-typed name is not a company id the API can filter on.
@@ -195,7 +208,9 @@ async function loadMeta() {
   fillSelect($('f-experience'), meta.experienceLevels, HEBREW.experience);
   fillSelect($('f-employment'), meta.employmentTypes, HEBREW.employment);
   fillLocationMultiselect(meta.locations);
-  fillSelect($('f-status'), meta.statuses, HEBREW.status);
+  // Absent (not an empty array) when logged out — data/jobs.js's
+  // filterOptions() never runs the per-account query for a guest at all.
+  fillSelect($('f-status'), meta.statuses || [], HEBREW.status);
 }
 
 // The whole filter state (including page) lives in this one query string, so
