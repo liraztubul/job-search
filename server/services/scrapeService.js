@@ -12,15 +12,16 @@
 const data = require('../data');
 const { matches } = require('../domain/matcher');
 const { buildAdapter } = require('../adapters');
+const { evaluateSanityGate } = require('../domain/scrapeSanity');
 
 /**
  * @param {(event: object) => void} [onEvent] progress callback
- * @returns {Promise<{companies: number, newJobs: number, matches: number, failures: object[]}>}
+ * @returns {Promise<{companies: number, newJobs: number, closedJobs: number, matches: number, failures: object[]}>}
  */
 async function runCycle(onEvent = () => {}) {
     const companies = data.getActiveCompanies();
     const profiles = data.getActiveProfiles();
-    const summary = { companies: companies.length, newJobs: 0, matches: 0, failures: [] };
+    const summary = { companies: companies.length, newJobs: 0, closedJobs: 0, matches: 0, failures: [] };
 
     for (const company of companies) {
         onEvent({ type: 'company:start', company: company.name });
@@ -38,7 +39,24 @@ async function runCycle(onEvent = () => {}) {
 
         onEvent({ type: 'company:fetched', company: company.name, count: jobs.length });
 
+        // Sanity gate (ARCHITECTURE.md §4.2, server/domain/scrapeSanity.js):
+        // "the company closed every role" and "the scraper broke" look
+        // identical in the data. Existing rows are left untouched when the
+        // gate refuses a result, and — critically — closure detection below
+        // never runs, so a broken adapter can never mass-close a company's
+        // listings.
+        const openBefore = data.countOpenJobs(company.id);
+        const verdict = evaluateSanityGate(openBefore, jobs.length);
+        if (!verdict.trusted) {
+            const reason = `sanity gate: ${verdict.reason}`;
+            summary.failures.push({ company: company.name, error: reason });
+            onEvent({ type: 'company:failed', company: company.name, error: reason });
+            continue;
+        }
+
+        const seenExternalIds = [];
         for (const job of jobs) {
+            seenExternalIds.push(job.externalId);
             const { isNew, id } = data.upsertJobSnapshot(company.id, job);
             if (!isNew) continue;
 
@@ -56,6 +74,20 @@ async function runCycle(onEvent = () => {}) {
                 data.recordNotification(id, profile.id);
             }
         }
+
+        // Closure detection (ARCHITECTURE.md §4.3): only ever reached after
+        // the sanity gate above has passed, on purpose — see the comment there.
+        const closedCount = data.closeMissingJobs(company.id, seenExternalIds);
+        if (closedCount > 0) {
+            summary.closedJobs += closedCount;
+            onEvent({ type: 'company:closed', company: company.name, count: closedCount });
+        }
+
+        // Set once, at the end of this company's first healthy cycle — see
+        // server/domain/jobFreshness.js for what this line is actually for.
+        // A no-op on every cycle after the first (data/companies.js only
+        // writes it while it's still NULL).
+        data.setFirstScrapedAt(company.id, new Date().toISOString());
     }
 
     return summary;

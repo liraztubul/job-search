@@ -45,7 +45,9 @@ test('maps a real posting into RawJob', () => {
     assert.equal(job.applyUrl, YOKNEAM_JOB.url_comeet_hosted_page);
     assert.equal(job.employmentType, 'full-time');
     assert.equal(job.experienceLevel, 'mid');
-    assert.equal(job.postedAt, '2026-08-09');
+    // time_updated is last-modified, not first-published — never trusted as
+    // posted_at (see server/adapters/comeetAdapter.js and Amendment B).
+    assert.equal(job.postedAt, null);
 });
 
 test('throws rather than inventing an id', () => {

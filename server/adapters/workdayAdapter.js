@@ -110,9 +110,13 @@ function mapWorkdayJob(posting, host, site, locale) {
         department: null,
         employmentType: null,
         experienceLevel: guessExperienceFromTitle(title),
-        // Workday gives relative text ("Posted Yesterday"), not a date — kept
-        // verbatim, same as Amazon's posted_date. Not ours to parse into one.
-        postedAt: posting.postedOn || null,
+        // Workday gives relative text ("Posted Yesterday", "Posted 30+ Days
+        // Ago"), never a real date — and posted_at is a strict invariant
+        // (real ISO date or null, enforced in data/jobs.js). Storing the
+        // relative text used to send broken "already gone" apply links and
+        // false "just posted" badges once dates became user-facing; null
+        // means the job correctly falls back to first_seen_at instead.
+        postedAt: null,
         jobCode,
     };
 }

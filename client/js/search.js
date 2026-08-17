@@ -282,6 +282,44 @@ const LOCATION_PIN = el('span', {
     + '<path d="M12 21s-7-6.7-7-11a7 7 0 0 1 14 0c0 4.3-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
 });
 
+/**
+ * "14.8.2026" — anchored to Asia/Jerusalem regardless of the visitor's own
+ * device timezone, matching how the server (server/domain/jobFreshness.js)
+ * decided which calendar day this date falls on in the first place. A
+ * visitor browsing from a different timezone must see the same date the
+ * server reasoned about, not one shifted by their own offset.
+ */
+function formatHebrewDate(isoValue) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', year: 'numeric',
+  }).formatToParts(new Date(isoValue));
+  // `month: 'numeric'` still comes back zero-padded ("08") in this Node's
+  // ICU data despite the name — Number() strips it, matching the "14.8.2026"
+  // (not "14.08.2026") format asked for.
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return `${get('day')}.${get('month')}.${get('year')}`;
+}
+
+/**
+ * The date line for a job card, or null when there's nothing honest to show.
+ *
+ * Wording depends on WHERE the date came from, not just what it is —
+ * claiming "פורסם" (posted) for a date we only inferred from our own first
+ * sighting would be a claim the source never actually made. dateSource
+ * "unknown" (a job that predates our coverage of its company — see
+ * server/domain/jobFreshness.js) renders nothing at all: no placeholder, no
+ * "לא ידוע", silence.
+ */
+function jobDateElement(job) {
+  if (!job.displayDate || job.dateSource === 'unknown') return null;
+
+  const label = job.dateSource === 'source'
+    ? `פורסם ב-${formatHebrewDate(job.displayDate)}`
+    : `נוסף ב-${formatHebrewDate(job.displayDate)}`;
+
+  return el('time', { dateTime: job.displayDate, textContent: label });
+}
+
 function jobCard(job) {
   const titleId = `job-${job.id}-title`;
   const statusId = `job-${job.id}-status`;
@@ -298,16 +336,24 @@ function jobCard(job) {
   // requisition id while skimming search results) and kept where it's
   // actually useful — the tracker table, once you're applying for real.
   const jobMeta = el('p', { className: 'job-meta' }, el('strong', { textContent: job.company }));
+  const dateEl = jobDateElement(job);
+  if (dateEl) jobMeta.append(' · ', dateEl);
 
   const tags = el('ul', { className: 'tags' });
   const addTag = (cls, ...content) => tags.append(el('li', { className: cls }, ...content));
-  // Location and experience are the two facts someone scans a results list
-  // for first, so they lead the tag row with an accent that sets them apart
-  // from the plainer employment/department detail tags after them.
+  // "New" leads the tag row — it's the one fact this whole feature exists to
+  // surface before anything else. Location and experience follow with their
+  // own accent because they're the two facts someone scans for next.
+  if (job.isNew) addTag('tag tag-new', 'נוסף לאחרונה');
   if (job.location) addTag('tag tag-highlight tag-location', LOCATION_PIN.cloneNode(true), job.location);
   if (job.experienceLevel) addTag('tag tag-highlight', HEBREW.experience[job.experienceLevel] || job.experienceLevel);
   if (job.employmentType) addTag('tag', HEBREW.employment[job.employmentType] || job.employmentType);
   if (job.department) addTag('tag', job.department);
+  // Closed jobs never reach this card at all (server/data/jobs.js excludes
+  // is_still_open=0 from search results) — a dead card for a listing you
+  // could never actually open is worse than not showing it. This branch is
+  // dead on the search page today; kept only because jobCard() has no
+  // guarantee against reuse somewhere that DOES want to show closed ones.
   if (!job.isStillOpen) addTag('tag closed', 'נסגרה');
 
   const main = el('div', { className: 'job-main' },

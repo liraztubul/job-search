@@ -82,7 +82,10 @@ test('maps a real posting into RawJob', () => {
     assert.equal(job.externalId, 'JR0285893');
     assert.equal(job.title, 'System Level Test Lead');
     assert.equal(job.location, 'Israel, Haifa');
-    assert.equal(job.postedAt, 'Posted Yesterday');
+    // Relative text is never trusted as a date — null, so the job falls back
+    // to first_seen_at (see server/domain/jobFreshness.js) instead of
+    // carrying a broken "date" a user could never actually parse.
+    assert.equal(job.postedAt, null);
     assert.equal(
         job.applyUrl,
         'https://intel.wd1.myworkdayjobs.com/en-US/External/job/Israel-Haifa/System-Level-Test-Lead_JR0285893'

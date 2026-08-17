@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { mapAmazonJob } = require('../server/adapters/amazonAdapter');
+const { mapAmazonJob, parseAmazonDate } = require('../server/adapters/amazonAdapter');
 
 /**
  * Captured verbatim from https://www.amazon.jobs/search.json?country=ISR
@@ -31,7 +31,23 @@ test('maps a real Amazon job into RawJob', () => {
     assert.equal(job.title, 'Supply Chain Planner');
     assert.equal(job.location, 'Haifa, Haifa, ISR');
     assert.equal(job.applyUrl, 'https://www.amazon.jobs/en/jobs/10490457/supply-chain-planner');
-    assert.equal(job.postedAt, 'August  3, 2026');
+    // Parsed to a real ISO date, not the source's raw prose — posted_at is a
+    // strict invariant (real date or null) enforced from the adapter up.
+    assert.equal(job.postedAt, '2026-08-03');
+});
+
+test('parseAmazonDate: "August  3, 2026" (literal double space, as the real API sends it) -> "2026-08-03"', () => {
+    assert.equal(parseAmazonDate('August  3, 2026'), '2026-08-03');
+});
+
+test('parseAmazonDate: a single space also works', () => {
+    assert.equal(parseAmazonDate('August 3, 2026'), '2026-08-03');
+});
+
+test('parseAmazonDate: unrecognized text -> null, not a guess', () => {
+    assert.equal(parseAmazonDate('recently'), null);
+    assert.equal(parseAmazonDate(''), null);
+    assert.equal(parseAmazonDate(null), null);
 });
 
 test('externalId is a string, so DB lookups stay type-stable', () => {

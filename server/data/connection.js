@@ -16,6 +16,7 @@
 // It replaces better-sqlite3 rather than joining it, so the project still has
 // exactly one runtime dependency (ADR-002).
 const { applySchema, ensureColumn: ensureColumnOn } = require('./schema');
+const { isValidPostedAt } = require('../domain/jobFreshness');
 
 const Database = require('libsql');
 const crypto = require('crypto');
@@ -163,4 +164,58 @@ function backfillOwnership() {
 
 backfillOwnership();
 
-module.exports = { db, ensureColumn, backfillOwnership };
+/**
+ * posted_at became a strict invariant (real ISO date or NULL — see
+ * data/jobs.js's sanitizePostedAt and domain/jobFreshness.js) after rows
+ * already existed with Workday's relative text ("Posted N Days Ago") and
+ * Comeet's last-modified timestamp sitting in that column. New writes are
+ * guarded at the source; this is the one-time (but safe to re-run — it's a
+ * no-op once clean) sweep for what was already there before the guard
+ * existed.
+ *
+ * Matches defensively — anything that fails validation, not just the two
+ * known patterns — so a different adapter's past mistake gets caught the
+ * same way. No db.transaction(): see the identical reasoning in
+ * data/passwordResets.js — a remote libSQL connection is stateless HTTP and
+ * a wrapped transaction throws against it. Each row's clear is independent
+ * and idempotent, so there is nothing a transaction would buy here anyway.
+ */
+function cleanupInvalidPostedAt() {
+    const rows = db.prepare('SELECT id, posted_at FROM job_snapshots WHERE posted_at IS NOT NULL').all();
+    const bad = rows.filter((r) => !isValidPostedAt(r.posted_at));
+    if (bad.length === 0) return;
+
+    const clear = db.prepare('UPDATE job_snapshots SET posted_at = NULL WHERE id = ?');
+    for (const row of bad) clear.run(row.id);
+    console.log(
+        `Cleared ${bad.length} invalid posted_at value(s) (relative text, a last-modified ` +
+            'timestamp, or a future date) written before it became a strict invariant.'
+    );
+}
+
+cleanupInvalidPostedAt();
+
+/**
+ * Comeet's stored posted_at is syntactically fine (a real YYYY-MM-DD) — it's
+ * semantically wrong: it came from a last-modified timestamp, not a
+ * first-published one, so cleanupInvalidPostedAt() above (which only catches
+ * values that fail ISO-date validation) can never find it. Existing Comeet
+ * rows need their own explicit sweep; new ones already write NULL directly
+ * (see adapters/comeetAdapter.js).
+ */
+function cleanupComeetPostedAt() {
+    const result = db
+        .prepare(
+            `UPDATE job_snapshots SET posted_at = NULL
+              WHERE posted_at IS NOT NULL
+                AND company_id IN (SELECT id FROM watched_companies WHERE adapter_type = 'comeet')`
+        )
+        .run();
+    if (result.changes > 0) {
+        console.log(`Cleared posted_at on ${result.changes} Comeet job(s) — it was a last-modified date, not a posting date.`);
+    }
+}
+
+cleanupComeetPostedAt();
+
+module.exports = { db, ensureColumn, backfillOwnership, cleanupInvalidPostedAt, cleanupComeetPostedAt };

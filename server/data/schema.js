@@ -42,6 +42,8 @@ const MIGRATIONS = {
         ['posted_at', 'TEXT'],
         ['location_search', 'TEXT'],
         ['job_code', 'TEXT'],
+        // Closure detection: NULL means "believed open". See schema.sql.
+        ['closed_at', 'TEXT'],
     ],
     // Password reset (session_epoch) and registration email confirmation
     // (email_verified_at) landed after accounts were already live. SQLite
@@ -52,6 +54,8 @@ const MIGRATIONS = {
         ['session_epoch', 'INTEGER NOT NULL DEFAULT 0'],
         ['email_verified_at', 'TEXT'],
     ],
+    // The "new company" trap: see server/domain/jobFreshness.js.
+    watched_companies: [['first_scraped_at', 'TEXT']],
 };
 
 /** Adds a column only when it is absent, so running it repeatedly is harmless. */

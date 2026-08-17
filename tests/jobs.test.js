@@ -7,9 +7,9 @@ process.env.JT_DB_PATH = ':memory:';
 const test = require('node:test');
 const assert = require('node:assert');
 const { db } = require('../server/data/connection');
-const { addCompany } = require('../server/data/companies');
+const { addCompany, setFirstScrapedAt } = require('../server/data/companies');
 const { createUser } = require('../server/data/users');
-const { queryJobs, countJobs, upsertJobSnapshot } = require('../server/data/jobs');
+const { queryJobs, countJobs, upsertJobSnapshot, countOpenJobs, closeMissingJobs } = require('../server/data/jobs');
 
 /**
  * Pagination is only trustworthy if countJobs and queryJobs can never
@@ -157,6 +157,127 @@ test('filters.locations matches any of the given cities (OR), not their intersec
 
     assert.equal(countJobs(userId, { companyId, locations: ['Tel Aviv', 'Haifa'] }), 2);
     assert.equal(countJobs(userId, { companyId, locations: [] }), 3, 'an empty list means no location filter at all');
+});
+
+// ---------------------------------------------------------------------------
+// posted_at is a strict invariant: real ISO date or NULL, enforced here so
+// no adapter's mistake (or a future one nobody's written yet) can smuggle
+// relative text or a future date into storage.
+// ---------------------------------------------------------------------------
+
+test('upsertJobSnapshot silently nulls out a posted_at that is not a valid, non-future ISO date', () => {
+    const companyId = addCompany({ name: `Bad Date Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+
+    for (const bad of ['Posted 3 Days Ago', '2099-01-01', 'not-a-date', '']) {
+        const { id } = upsertJobSnapshot(companyId, {
+            externalId: `job-${Math.random()}`,
+            title: 'Test Job',
+            location: 'Tel Aviv',
+            applyUrl: 'https://example.com',
+            postedAt: bad,
+        });
+        const stored = db.prepare('SELECT posted_at FROM job_snapshots WHERE id = ?').get(id);
+        assert.equal(stored.posted_at, null, `"${bad}" must not reach storage`);
+    }
+});
+
+test('upsertJobSnapshot keeps a real, non-future posted_at, and re-validates it on update too', () => {
+    const companyId = addCompany({ name: `Good Date Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const externalId = `job-${Math.random()}`;
+
+    const { id } = upsertJobSnapshot(companyId, {
+        externalId, title: 'Test Job', location: 'Tel Aviv', applyUrl: 'https://example.com', postedAt: '2026-08-01',
+    });
+    assert.equal(db.prepare('SELECT posted_at FROM job_snapshots WHERE id = ?').get(id).posted_at, '2026-08-01');
+
+    // A re-scrape that suddenly sends garbage must not be trusted just
+    // because the row already existed.
+    upsertJobSnapshot(companyId, {
+        externalId, title: 'Test Job', location: 'Tel Aviv', applyUrl: 'https://example.com', postedAt: 'garbage',
+    });
+    assert.equal(db.prepare('SELECT posted_at FROM job_snapshots WHERE id = ?').get(id).posted_at, null);
+});
+
+// ---------------------------------------------------------------------------
+// Closure detection — countOpenJobs / closeMissingJobs (scrapeService.js's
+// data-layer half; the sanity-gate decision itself is tested in
+// tests/scrapeSanity.test.js as a pure function).
+// ---------------------------------------------------------------------------
+
+test('closeMissingJobs closes exactly the open jobs absent from this run, and only those', () => {
+    const companyId = addCompany({ name: `Closure Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    for (const externalId of ['keep-1', 'keep-2', 'gone-1', 'gone-2']) {
+        upsertJobSnapshot(companyId, {
+            externalId, title: `Job ${externalId}`, location: 'Tel Aviv', applyUrl: 'https://example.com',
+        });
+    }
+    assert.equal(countOpenJobs(companyId), 4);
+
+    const closedCount = closeMissingJobs(companyId, ['keep-1', 'keep-2']);
+    assert.equal(closedCount, 2);
+    assert.equal(countOpenJobs(companyId), 2);
+
+    const rows = db.prepare('SELECT external_id, is_still_open, closed_at FROM job_snapshots WHERE company_id = ? ORDER BY external_id').all(companyId);
+    assert.deepEqual(
+        rows.map((r) => [r.external_id, r.is_still_open]),
+        [['gone-1', 0], ['gone-2', 0], ['keep-1', 1], ['keep-2', 1]]
+    );
+    assert.ok(rows.find((r) => r.external_id === 'gone-1').closed_at, 'closed_at must be stamped');
+    assert.equal(rows.find((r) => r.external_id === 'keep-1').closed_at, null);
+});
+
+test('closeMissingJobs never touches an already-closed job again', () => {
+    const companyId = addCompany({ name: `Closure Co B ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'x', title: 'X', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    closeMissingJobs(companyId, []); // closes it
+    const firstClosedAt = db.prepare('SELECT closed_at FROM job_snapshots WHERE company_id = ?').get(companyId).closed_at;
+
+    // A second pass with the job still absent must not re-stamp closed_at —
+    // the query only ever looks at currently-OPEN rows.
+    const secondPassCount = closeMissingJobs(companyId, []);
+    assert.equal(secondPassCount, 0);
+    const secondClosedAt = db.prepare('SELECT closed_at FROM job_snapshots WHERE company_id = ?').get(companyId).closed_at;
+    assert.equal(secondClosedAt, firstClosedAt);
+});
+
+test('closeMissingJobs on a company with nothing missing closes nothing', () => {
+    const companyId = addCompany({ name: `Closure Co C ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'A', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    assert.equal(closeMissingJobs(companyId, ['a']), 0);
+    assert.equal(countOpenJobs(companyId), 1);
+});
+
+test('countOpenJobs only counts is_still_open=1 rows for that company', () => {
+    const companyId = addCompany({ name: `Open Count Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const otherCompanyId = addCompany({ name: `Other Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'A', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'b', title: 'B', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(otherCompanyId, { externalId: 'c', title: 'C', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    assert.equal(countOpenJobs(companyId), 2);
+    closeMissingJobs(companyId, ['a']);
+    assert.equal(countOpenJobs(companyId), 1, 'closing one job at this company must not touch the other company');
+    assert.equal(countOpenJobs(otherCompanyId), 1);
+});
+
+test('setFirstScrapedAt is set once, and every later call is a no-op — the new-company trap depends on this', () => {
+    const companyId = addCompany({ name: `First Scrape Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    assert.equal(db.prepare('SELECT first_scraped_at FROM watched_companies WHERE id = ?').get(companyId).first_scraped_at, null);
+
+    setFirstScrapedAt(companyId, '2026-01-01T00:00:00.000Z');
+    assert.equal(
+        db.prepare('SELECT first_scraped_at FROM watched_companies WHERE id = ?').get(companyId).first_scraped_at,
+        '2026-01-01T00:00:00.000Z'
+    );
+
+    // A later cycle calling this again (as scrapeService.js does, unconditionally,
+    // after every healthy cycle) must never move the timestamp forward.
+    setFirstScrapedAt(companyId, '2026-06-01T00:00:00.000Z');
+    assert.equal(
+        db.prepare('SELECT first_scraped_at FROM watched_companies WHERE id = ?').get(companyId).first_scraped_at,
+        '2026-01-01T00:00:00.000Z'
+    );
 });
 
 // ---------------------------------------------------------------------------

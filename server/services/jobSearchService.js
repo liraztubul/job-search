@@ -9,6 +9,7 @@
 const data = require('../data');
 const { GUEST } = require('../data/tenancy');
 const { APPLICATION_STATUSES } = require('../domain/applicationStatus');
+const { computeFreshness } = require('../domain/jobFreshness');
 
 /**
  * @param {number} userId
@@ -24,7 +25,6 @@ function searchJobs(userId, params) {
         locations: params.getAll('location').filter(Boolean),
         q: params.get('q') || null,
         status: params.get('status') || null,
-        openOnly: params.get('open') === '1',
         sort: params.get('sort') || null,
     };
 
@@ -39,7 +39,17 @@ function searchJobs(userId, params) {
 
     const { jobs } = data.queryJobs(userId, { ...filters, page, pageSize });
 
-    return { jobs, page, pageSize, totalMatching, totalPages };
+    // displayDate/dateSource/isNew computed once, here, so the client never
+    // reimplements "how new is this job" — see domain/jobFreshness.js.
+    // companyFirstScrapedAt was only ever needed to compute that; it's an
+    // implementation detail of the freshness rule, not part of the job's
+    // own shape, so it doesn't ride along into the response.
+    const jobsWithFreshness = jobs.map(({ companyFirstScrapedAt, ...job }) => ({
+        ...job,
+        ...computeFreshness(job, companyFirstScrapedAt),
+    }));
+
+    return { jobs: jobsWithFreshness, page, pageSize, totalMatching, totalPages };
 }
 
 /**

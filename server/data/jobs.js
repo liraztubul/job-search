@@ -8,6 +8,7 @@
 
 const { db } = require('./connection');
 const { locationTokens, locationSearchValue, isIsraeliLocation } = require('../domain/locations');
+const { isValidPostedAt } = require('../domain/jobFreshness');
 // resolveViewer, not requireUser: the job list is public, so a logged-out
 // visitor is an allowed caller here (and only here — see tenancy.js). It still
 // throws on undefined, so a forgotten user id is still a crash.
@@ -16,9 +17,21 @@ const { resolveViewer, requireUser, GUEST } = require('./tenancy');
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
+/**
+ * posted_at is a strict invariant: a real ISO date the source reports as the
+ * job's first-published date, or NULL — never anything else. Enforced here,
+ * at the one place every adapter's output passes through, rather than
+ * trusted from each adapter individually — see docs/ARCHITECTURE.md and
+ * server/domain/jobFreshness.js for why (relative text, last-modified
+ * timestamps mistaken for posting dates, and future dates have all shown up
+ * from real sources).
+ */
+const sanitizePostedAt = (value) => (isValidPostedAt(value) ? value : null);
+
 /** Returns { isNew, id } — inserts if unseen, otherwise just bumps last_seen_at */
 function upsertJobSnapshot(companyId, job) {
     const now = new Date().toISOString();
+    const postedAt = sanitizePostedAt(job.postedAt);
     const existing = db
         .prepare('SELECT id FROM job_snapshots WHERE company_id = ? AND external_id = ?')
         .get(companyId, job.externalId);
@@ -43,7 +56,7 @@ function upsertJobSnapshot(companyId, job) {
             job.employmentType ?? null,
             job.experienceLevel ?? null,
             job.department ?? null,
-            job.postedAt ?? null,
+            postedAt,
             existing.id
         );
         return { isNew: false, id: existing.id };
@@ -70,9 +83,49 @@ function upsertJobSnapshot(companyId, job) {
             job.employmentType ?? null,
             job.experienceLevel ?? null,
             job.department ?? null,
-            job.postedAt ?? null
+            postedAt
         );
     return { isNew: true, id: info.lastInsertRowid };
+}
+
+// ---------------------------------------------------------------------------
+// Sanity gate + closure detection — see server/services/scrapeService.js and
+// docs/ARCHITECTURE.md §4.2/§4.3. "No jobs" and "the scraper broke" look
+// identical in the data; these two functions are what let the caller tell
+// them apart before trusting either one.
+// ---------------------------------------------------------------------------
+
+/** The sanity gate's baseline: how many jobs are currently believed open for
+ * this company, before this cycle's result is judged against it. */
+function countOpenJobs(companyId) {
+    return db.prepare('SELECT COUNT(*) AS n FROM job_snapshots WHERE company_id = ? AND is_still_open = 1').get(companyId).n;
+}
+
+/**
+ * Marks every currently-open job for this company that was NOT in
+ * `seenExternalIds` as closed. Only ever safe to call after the sanity gate
+ * has passed (see scrapeService.js) — this function itself has no way to
+ * tell "the company closed these roles" apart from "the scraper broke and
+ * returned an empty list", it just trusts the caller already did.
+ *
+ * Reads the (small, bounded-per-company) set of open rows and diffs in JS
+ * rather than a single `external_id NOT IN (...)` statement — building that
+ * with a few hundred dynamic placeholders is more fragile than it's worth
+ * for something that runs once per company per cycle, not per request.
+ *
+ * @returns {number} how many jobs were closed
+ */
+function closeMissingJobs(companyId, seenExternalIds, now = new Date().toISOString()) {
+    const openRows = db
+        .prepare('SELECT id, external_id FROM job_snapshots WHERE company_id = ? AND is_still_open = 1')
+        .all(companyId);
+    const seen = new Set(seenExternalIds);
+    const toClose = openRows.filter((row) => !seen.has(row.external_id));
+    if (toClose.length === 0) return 0;
+
+    const close = db.prepare('UPDATE job_snapshots SET is_still_open = 0, closed_at = ? WHERE id = ?');
+    for (const row of toClose) close.run(now, row.id);
+    return toClose.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,9 +200,16 @@ function buildJobFilters(filters, owner) {
         where.push(filters.status === 'none' ? 'a.status IS NULL' : 'a.status = ?');
         if (filters.status !== 'none') params.push(filters.status);
     }
-    if (filters.openOnly) {
-        where.push('j.is_still_open = 1');
-    }
+    // Closed postings never show in the search results — a card that opens
+    // to a dead link on the source site is worse than not listing it at all.
+    // Unconditional, not an opt-in filter: closeMissingJobs() (see
+    // scrapeService.js) is the only thing that ever sets this to 0, and once
+    // it does, the listing has nothing left to offer a browsing visitor.
+    // A tracked application is a different table (applications.js's
+    // listApplications has no such filter, on purpose) — closing a job must
+    // never make someone's own tracked application vanish from their
+    // dashboard, only from the public search.
+    where.push('j.is_still_open = 1');
 
     return { whereClause: where.join(' AND '), params };
 }
@@ -219,7 +279,7 @@ function queryJobs(userId, filters = {}) {
                     j.title, j.location, j.apply_url AS applyUrl, j.job_code AS jobCode, j.employment_type AS employmentType,
                     j.experience_level AS experienceLevel, j.department, j.posted_at AS postedAt,
                     j.first_seen_at AS firstSeenAt, j.is_still_open AS isStillOpen,
-                    c.name AS company, c.id AS companyId,
+                    c.name AS company, c.id AS companyId, c.first_scraped_at AS companyFirstScrapedAt,
                     a.status, a.notes, a.applied_at AS appliedAt
                FROM job_snapshots j
                JOIN watched_companies c ON c.id = j.company_id
@@ -322,4 +382,4 @@ function filterOptions(userId) {
     return options;
 }
 
-module.exports = { upsertJobSnapshot, queryJobs, countJobs, filterOptions };
+module.exports = { upsertJobSnapshot, queryJobs, countJobs, filterOptions, countOpenJobs, closeMissingJobs };

@@ -13,6 +13,7 @@ const report = {
     'company:start': (e) => `Checking ${e.company}...`,
     'company:fetched': (e) => `  ${e.count} jobs`,
     'company:failed': (e) => `  FAILED: ${e.error}`,
+    'company:closed': (e) => `  CLOSED: ${e.count} job(s) no longer on the site`,
     'job:new': (e) => `  NEW: ${e.title} (${e.location || 'no location'})`,
     'job:matched': (e) => `    -> matches "${e.profile}": ${e.url}`,
 };
@@ -27,7 +28,7 @@ runCycle((event) => {
         } else {
             console.log(
                 `\nDone. ${summary.companies} companies, ${summary.newJobs} new jobs, ` +
-                    `${summary.matches} profile matches.`
+                    `${summary.closedJobs} closed, ${summary.matches} profile matches.`
             );
         }
 

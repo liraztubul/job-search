@@ -27,4 +27,18 @@ function addCompany({ name, careerUrl, adapterType, config }) {
     return info.lastInsertRowid;
 }
 
-module.exports = { getActiveCompanies, listCompanies, findCompanyByName, addCompany };
+/**
+ * Records the end of this company's first successful (sanity-gate-passing)
+ * scrape cycle — see scrapeService.js and server/domain/jobFreshness.js. Set
+ * once; the `WHERE first_scraped_at IS NULL` makes every later call a no-op,
+ * so scrapeService can call this unconditionally after every healthy cycle
+ * without needing to track "have I already set this" itself.
+ */
+function setFirstScrapedAt(companyId, timestamp) {
+    db.prepare('UPDATE watched_companies SET first_scraped_at = ? WHERE id = ? AND first_scraped_at IS NULL').run(
+        timestamp,
+        companyId
+    );
+}
+
+module.exports = { getActiveCompanies, listCompanies, findCompanyByName, addCompany, setFirstScrapedAt };

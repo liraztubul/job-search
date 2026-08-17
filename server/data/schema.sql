@@ -49,7 +49,13 @@ CREATE TABLE IF NOT EXISTS watched_companies (
     career_url TEXT NOT NULL,
     adapter_type TEXT NOT NULL,   -- e.g. 'comeet', 'greenhouse', 'custom_elbit'
     adapter_config TEXT,          -- JSON string with adapter-specific params (e.g. company slug)
-    is_active INTEGER DEFAULT 1
+    is_active INTEGER DEFAULT 1,
+    -- Set once, at the end of this company's first successful (sanity-gate-
+    -- passing) scrape cycle — never touched again. A job whose first_seen_at
+    -- is at or before this is part of the initial bulk load: we have no idea
+    -- how old it actually is, so it must never be shown as "new". See
+    -- server/domain/jobFreshness.js.
+    first_scraped_at TEXT
 );
 
 -- Every job we've ever seen, per company, per scrape cycle
@@ -69,7 +75,16 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
     employment_type TEXT,          -- full-time | part-time | contract | temporary | internship
     experience_level TEXT,         -- intern | entry | mid | senior
     department TEXT,               -- source's own wording, e.g. "Algorithms"
-    posted_at TEXT,                -- source's own wording, not parsed to a date
+    -- STRICT INVARIANT: either a real ISO date (YYYY-MM-DD) the source itself
+    -- reports as the job's first-published date, or NULL. Never relative text
+    -- ("Posted 3 Days Ago"), never a last-modified timestamp, never a future
+    -- date. Enforced at the write layer in data/jobs.js, not left to each
+    -- adapter's discipline — see upsertJobSnapshot.
+    posted_at TEXT,
+    -- Set once closure detection (server/services/scrapeService.js) notices
+    -- this job's external_id was absent from a healthy scrape of its company.
+    -- NULL while the job is believed open.
+    closed_at TEXT,
     UNIQUE(company_id, external_id)
 );
 

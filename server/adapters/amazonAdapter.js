@@ -20,6 +20,31 @@ const HEADERS = {
     Accept: 'application/json',
 };
 
+const MONTHS = {
+    January: '01', February: '02', March: '03', April: '04', May: '05', June: '06',
+    July: '07', August: '08', September: '09', October: '10', November: '11', December: '12',
+};
+
+/**
+ * 'August  4, 2026' -> '2026-08-04'; anything else -> null rather than a
+ * guess. Same hand-rolled-regex pattern as appleAdapter.js's parseAppleDate,
+ * not `new Date(string)` — that's locale- and engine-dependent for a format
+ * this specific, and a silent misparse is worse than a null.
+ *
+ * `\s+` between the month and the day is deliberate, not `\s`: the real
+ * response has a literal double space here ("August  4, 2026"), confirmed
+ * against a live capture — a single-space regex would silently reject every
+ * Amazon posting date.
+ */
+function parseAmazonDate(text) {
+    const m = /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/.exec(String(text || '').trim());
+    if (!m) return null;
+    const [, monthName, day, year] = m;
+    const month = MONTHS[monthName];
+    if (!month) return null;
+    return `${year}-${month}-${day.padStart(2, '0')}`;
+}
+
 /**
  * Pure mapping: one raw Amazon job -> one RawJob. Exported separately so it can
  * be tested without touching the network.
@@ -47,7 +72,7 @@ function mapAmazonJob(raw) {
         // what a profile's location_filter is written against.
         location: raw.normalized_location || raw.location || raw.city || '',
         applyUrl: raw.job_path ? `${BASE}${raw.job_path}` : `${BASE}/en/jobs/${externalId}`,
-        postedAt: raw.posted_date || null,
+        postedAt: parseAmazonDate(raw.posted_date),
         employmentType: normalizeEmploymentType(raw.job_schedule_type),
         experienceLevel,
         department: raw.job_category || raw.job_family || null,
@@ -117,4 +142,4 @@ class AmazonAdapter extends JobSource {
     }
 }
 
-module.exports = { AmazonAdapter, mapAmazonJob };
+module.exports = { AmazonAdapter, mapAmazonJob, parseAmazonDate };

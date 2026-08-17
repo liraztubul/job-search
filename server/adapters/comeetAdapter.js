@@ -96,7 +96,13 @@ function mapComeetJob(pos) {
         department: pos.department || null,
         employmentType: normalizeEmploymentType(pos.employment_type),
         experienceLevel: normalizeExperienceLevel(pos.experience_level) || guessExperienceFromTitle(title),
-        postedAt: pos.time_updated ? String(pos.time_updated).slice(0, 10) : null,
+        // time_updated is a LAST-MODIFIED timestamp, not a first-published
+        // one — a six-month-old posting edited yesterday would arrive with a
+        // fresh date and wrongly earn a "just added" badge (posted_at is a
+        // strict first-published-or-null invariant, see data/jobs.js). Could
+        // be preserved separately as a source_updated_at column if the signal
+        // is ever wanted for something else, but nothing needs it today.
+        postedAt: null,
     };
 }
 
