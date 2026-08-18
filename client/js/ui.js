@@ -61,29 +61,6 @@ function applyTheme(theme) {
 }
 
 /**
- * A one-line strip under the header, telling a signed-in account its
- * registration email hasn't been confirmed yet.
- *
- * Non-blocking on purpose (see docs/ROADMAP.md): the account works fully
- * either way, so this is context, not a warning — same reasoning as the
- * accent colour here rather than a caution yellow. Deliberately not
- * dismissible: it should still be visible on the second page view, when the
- * confirmation email has had time to actually arrive.
- */
-function showUnverifiedNotice() {
-  if (document.getElementById('unverified-banner')) return;
-
-  const banner = el('p', { id: 'unverified-banner', className: 'notice-banner' });
-  banner.append(
-    el('strong', { textContent: 'עדיין לא אישרת את כתובת האימייל שלך. ' }),
-    document.createTextNode('שלחנו קישור אישור בהרשמה — החשבון עובד במלואו גם בלעדיו.')
-  );
-
-  const header = document.querySelector('.site-header');
-  if (header) header.after(banner);
-}
-
-/**
  * The account control in the top-left corner.
  *
  * One slot, three honest states — never a button that lies about what it does:
@@ -116,8 +93,6 @@ async function initSessionNav() {
   }
 
   if (!session.authenticated) return; // the default "התחברות" link is correct
-
-  if (session.emailVerified === false) showUnverifiedNotice();
 
   const logout = el('button', {
     type: 'button',

@@ -218,17 +218,6 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
 }
 .btn-link:hover { text-decoration-thickness:2px; }
 
-/* A one-line strip under the header for page-level context (currently: the
-   unverified-email notice). Uses the accent colours rather than a warning
-   yellow: this is context, not a problem, and a site that greets you with a
-   caution banner reads as broken. */
-.notice-banner {
-  margin:0; padding:.63rem 1.25rem; font-size:.88rem; line-height:1.5;
-  background:var(--tag-accent-bg); color:var(--tag-accent-fg);
-  border-bottom:1px solid var(--border);
-}
-.notice-banner a { color:inherit; }
-
 /* Sits last in the header, after the spacer — the physical left edge in RTL. */
 #account-slot { display:flex; align-items:center; }
 #account-slot .btn { text-decoration:none; display:inline-flex; align-items:center; }
