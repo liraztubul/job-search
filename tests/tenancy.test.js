@@ -67,3 +67,17 @@ test('every application repository function demands a user', () => {
     assert.throws(() => applications.listApplications(), /requireUser/);
     assert.throws(() => applications.setApplication({ jobSnapshotId: 1, status: 'saved' }), /requireUser/);
 });
+
+test('deleteUserAccount demands a user', () => {
+    let users;
+    try {
+        users = require('../server/data/users');
+    } catch {
+        return; // native module unavailable in this environment
+    }
+
+    assert.throws(() => users.deleteUserAccount(), /requireUser/);
+    for (const bad of [undefined, null, 0, -1, 'all']) {
+        assert.throws(() => users.deleteUserAccount(bad), /requireUser/, `accepted ${JSON.stringify(bad)}`);
+    }
+});

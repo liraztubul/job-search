@@ -10,6 +10,7 @@ const data = require('../data');
 const { GUEST } = require('../data/tenancy');
 const { APPLICATION_STATUSES } = require('../domain/applicationStatus');
 const { computeFreshness } = require('../domain/jobFreshness');
+const { isStale } = require('../domain/scrapeFreshness');
 
 /**
  * @param {number} userId
@@ -41,10 +42,11 @@ function searchJobs(userId, params) {
 
     // displayDate/dateSource/isNew computed once, here, so the client never
     // reimplements "how new is this job" — see domain/jobFreshness.js.
-    // companyFirstScrapedAt was only ever needed to compute that; it's an
-    // implementation detail of the freshness rule, not part of the job's
-    // own shape, so it doesn't ride along into the response.
-    const jobsWithFreshness = jobs.map(({ companyFirstScrapedAt, ...job }) => ({
+    // companyFirstScrapedAt was only ever needed to compute that, and
+    // companyRecency only exists to drive the SQL ORDER BY (see queryJobs) —
+    // both are implementation details of how the list was built, not part of
+    // the job's own shape, so neither rides along into the response.
+    const jobsWithFreshness = jobs.map(({ companyFirstScrapedAt, companyRecency, ...job }) => ({
         ...job,
         ...computeFreshness(job, companyFirstScrapedAt),
     }));
@@ -61,7 +63,16 @@ function filterOptions(userId) {
     // interviewing/offer/rejected) — not personal data, always included.
     // `statuses` (the per-account counts) is data.filterOptions()'s call to
     // make, and it's the one that's actually scoped or omitted based on userId.
-    return { ...data.filterOptions(userId), statusVocabulary: APPLICATION_STATUSES };
+    const lastRun = data.getLastScrapeRun();
+    const lastScrapeAt = lastRun?.finished_at ?? null;
+
+    return {
+        ...data.filterOptions(userId),
+        statusVocabulary: APPLICATION_STATUSES,
+        // Null (never scraped) reads as stale too — see domain/scrapeFreshness.js.
+        lastScrapeAt,
+        scrapeStale: isStale(lastScrapeAt),
+    };
 }
 
 // Re-exported so `web/` can name a logged-out caller without importing from

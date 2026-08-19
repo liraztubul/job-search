@@ -7,7 +7,9 @@ const assert = require('node:assert');
 const { addCompany, setFirstScrapedAt } = require('../server/data/companies');
 const { upsertJobSnapshot, closeMissingJobs } = require('../server/data/jobs');
 const { createUser } = require('../server/data/users');
-const { searchJobs } = require('../server/services/jobSearchService');
+const { searchJobs, filterOptions } = require('../server/services/jobSearchService');
+const { recordScrapeRun } = require('../server/data/scrapeRuns');
+const { GUEST } = require('../server/data/tenancy');
 
 let userId;
 
@@ -88,8 +90,52 @@ test('every job in a search result carries displayDate, dateSource and isNew', (
     assert.ok('displayDate' in job);
     assert.ok('dateSource' in job);
     assert.ok('isNew' in job);
-    // Internal-only field used to compute the above — must not leak into the API shape.
+    // Internal-only fields used to compute the above / drive ordering — must
+    // not leak into the API shape.
     assert.equal('companyFirstScrapedAt' in job, false);
+    assert.equal('companyRecency' in job, false);
+});
+
+// ---------------------------------------------------------------------------
+// filterOptions() exposes when the data was last refreshed
+// ---------------------------------------------------------------------------
+
+test('filterOptions reports lastScrapeAt null and scrapeStale true when no cycle has ever run', () => {
+    const result = filterOptions(GUEST);
+    assert.equal(result.lastScrapeAt, null);
+    assert.equal(result.scrapeStale, true);
+});
+
+test('filterOptions reflects the most recently recorded scrape run', () => {
+    const recentFinish = new Date().toISOString();
+    recordScrapeRun({
+        startedAt: new Date(Date.now() - 1000).toISOString(),
+        finishedAt: recentFinish,
+        companies: 3,
+        newJobs: 5,
+        closedJobs: 0,
+        failures: [],
+    });
+
+    const result = filterOptions(GUEST);
+    assert.equal(result.lastScrapeAt, recentFinish);
+    assert.equal(result.scrapeStale, false, 'a run that just finished must not read as stale');
+});
+
+test('filterOptions reports scrapeStale true once the last run is over 24 hours old', () => {
+    const oldFinish = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    recordScrapeRun({
+        startedAt: oldFinish,
+        finishedAt: oldFinish,
+        companies: 1,
+        newJobs: 0,
+        closedJobs: 0,
+        failures: [],
+    });
+
+    const result = filterOptions(GUEST);
+    assert.equal(result.lastScrapeAt, oldFinish);
+    assert.equal(result.scrapeStale, true);
 });
 
 test('a job with a real posted_at reports dateSource "source" through the full search path', () => {

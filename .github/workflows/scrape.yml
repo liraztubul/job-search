@@ -24,11 +24,22 @@ name: Scrape career pages
 
 on:
   schedule:
-    # 03:00 and 15:00 UTC — roughly 06:00 and 18:00 Israel time, so the morning
-    # run has finished before anyone looks. GitHub runs scheduled jobs on a
-    # best-effort basis and can delay them by several minutes under load; this
-    # is a job list, not a market feed, and a late run costs nothing.
-    - cron: '0 3,15 * * *'
+    # Every 3 hours — eight runs a day, each a few minutes, comfortably inside
+    # the free Actions allowance even for a private repo. Twice a day left a
+    # job that closed right after the morning run looking live for up to
+    # twelve hours; three hours shrinks that window to something a visitor is
+    # unlikely to actually hit.
+    #
+    # DO NOT GO BELOW HOURLY. Past that point the cost lands on the career
+    # sites being polled, not on us — this project has been deliberate about
+    # not becoming a nuisance to sites that never asked to be scraped this
+    # often. If "make it fresher" comes up again, Task 3's per-click
+    # verification (server/services/jobVerifyService.js) is the actual fix:
+    # it closes the gap for the one job someone is about to open, at zero
+    # extra load on anyone who isn't clicking. GitHub runs scheduled jobs on a
+    # best-effort basis and can delay them under load; this is a job list, not
+    # a market feed, and a late run costs nothing.
+    - cron: '0 */3 * * *'
 
   # A button in the Actions tab. Waiting six hours to find out whether a fix
   # worked is how adapter bugs survive.

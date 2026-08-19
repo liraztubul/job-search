@@ -18,11 +18,13 @@
     <p style="margin-top:0"><strong>חשבונות כבויים כרגע.</strong></p>
     <p>השרת רץ בלי <code>JT_SESSION_SECRET</code>, אז אין למה להתחבר והכל רץ כחשבון יחיד.
        זו תצוגה מקדימה של הדף בלבד — לחיצה על הכפתור למטה תציג הודעת שגיאה, כצפוי.</p>
-    <p style="margin-bottom:0">כדי להדליק, עצרי את השרת והריצי:</p>
-    <p><code>node tools/set-password.js "סיסמה ארוכה"</code></p>
-    <p style="margin-bottom:0">ואז הפעילי מחדש עם המשתנים שהוא הדפיס.</p>
+    <p style="margin-bottom:0">כדי להדליק, הריצי:</p>
+    <p><code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></p>
+    <p style="margin-bottom:0">ואז הפעילי מחדש עם <code>JT_SESSION_SECRET</code> שווה לפלט, והירשמי דרך הכפתור למטה — אין עוד סיסמה גלובלית אחת, כל חשבון הוא רישום רגיל.</p>
     <p style="margin-bottom:0"><em>אפשר לעבור בין כניסה להרשמה בכפתור למטה כדי לראות את שני המסכים.</em></p>
   </div>
+
+  <p class="results-note" id="deleted-notice" role="status" hidden style="margin-bottom:1rem">החשבון נמחק בהצלחה.</p>
 
   <form class="card" id="login-form">
     <h2 style="margin-top:0" id="form-title">כניסה</h2>
@@ -32,6 +34,15 @@
       <label for="email">אימייל</label>
       <input type="email" id="email" name="email" autocomplete="email" required>
     </div>
+
+    <!-- Before the password field, on purpose (Task: someone choosing a
+         password needs to know before they choose it, not after) — and only
+         while mail can't actually be sent, so it disappears on its own the
+         moment BREVO_API_KEY is configured, with no second switch. -->
+    <p class="results-note" id="no-recovery-warning" role="alert" hidden style="margin-top:.75rem">
+      <strong>אין אפשרות לשחזור סיסמה כרגע.</strong> שליחת מיילים כבויה באתר הזה —
+      אם תשכחי את הסיסמה, לא יהיה אפשר לשחזר את החשבון. שמרי אותה במקום בטוח.
+    </p>
 
     <div class="field" style="margin-top:.75rem">
       <label for="password">סיסמה</label>
@@ -43,12 +54,16 @@
       <input type="password" id="password-confirm" name="password-confirm" autocomplete="new-password">
     </div>
 
+    <p class="results-note" id="register-privacy-note" hidden style="margin-top:.75rem">
+      בהרשמה את/ה מאשר/ת שקראת את <a href="privacy.html">מדיניות הפרטיות</a>.
+    </p>
+
     <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
     <p class="results-note" id="reset-sent" role="status" aria-live="polite" style="min-height:1.5rem"></p>
 
     <button type="submit" class="btn primary" style="width:100%" id="submit">התחברי</button>
 
-    <p id="forgot-password" style="text-align:center;margin:.75rem 0 0">
+    <p id="forgot-password" style="text-align:center;margin:.75rem 0 0" hidden>
       <button type="button" class="btn-link" id="forgot-password-link">שכחתי סיסמה</button>
     </p>
   </form>
@@ -58,11 +73,19 @@
   </p>
 </main>
 
+<footer class="site-footer">
+  <a href="privacy.html">מדיניות פרטיות</a>
+</footer>
+
 <script src="js/ui.js"></script>
 <script>
 'use strict';
 
 initUI();
+
+if (new URLSearchParams(location.search).get('deleted') === '1') {
+  $('deleted-notice').hidden = false;
+}
 
 // The server's own error strings are deliberately plain English (they're also
 // read by non-UI callers) — translated here so a failed attempt reads in the
@@ -96,6 +119,12 @@ function formatRetryMessage(retryAfterSec) {
 // stays enabled. A disabled button with only a hover tooltip for an
 // explanation produces zero feedback on click — this way an attempt to
 // submit always gets a real, visible answer, off or on.
+//
+// mailConfigured starts false (the safe default: hide the reset entry point
+// and show the "no recovery" warning until proven otherwise) and is
+// corrected once /api/session answers — see applyMode() below, which both
+// the initial call and this fetch's callback run.
+let mailConfigured = false;
 fetch('/api/session')
   .then((r) => r.json())
   .then((session) => {
@@ -104,13 +133,19 @@ fetch('/api/session')
       return;
     }
     if (!session.authRequired) $('accounts-off').hidden = false;
+    mailConfigured = Boolean(session.mailConfigured);
+    applyMode();
   })
   .catch(() => {});
 
 // Three modes sharing one form and one email field: 'login' and 'register'
 // toggle on the button below; 'reset' — requesting a password-reset link —
 // is reached only from "שכחתי סיסמה" and always returns to 'login', never
-// to 'register', on success or cancel.
+// to 'register', on success or cancel. The link itself is only ever shown
+// when mailConfigured is true (see applyMode below) — client/reset.html and
+// the /api/password-reset/* routes stay reachable either way, because a link
+// pulled from the server log by the owner must still work; only this one
+// entry point is hidden.
 let mode = 'login';
 
 function applyMode() {
@@ -134,7 +169,10 @@ function applyMode() {
   $('password-confirm').required = registering;
   if (!registering) $('password-confirm').value = '';
 
-  $('forgot-password').hidden = registering;
+  $('no-recovery-warning').hidden = !(registering && !mailConfigured);
+  $('register-privacy-note').hidden = !registering;
+
+  $('forgot-password').hidden = registering || resetting || !mailConfigured;
   $('forgot-password-link').textContent = resetting ? 'חזרה לכניסה' : 'שכחתי סיסמה';
 
   showError('');

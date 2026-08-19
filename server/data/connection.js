@@ -148,7 +148,7 @@ function backfillOwnership() {
         // A random, never-revealed value in the password_hash column, not the
         // "salt:hash" shape verifyPassword expects — this account can never
         // log in by password, on purpose. If auth is switched on later,
-        // `tools/set-password.js` gives it (or a newly registered account)
+        // `tools/reset-password.js` gives it (or a newly registered account)
         // a real one.
         const info = db
             .prepare('INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)')

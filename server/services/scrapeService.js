@@ -19,6 +19,7 @@ const { evaluateSanityGate } = require('../domain/scrapeSanity');
  * @returns {Promise<{companies: number, newJobs: number, closedJobs: number, matches: number, failures: object[]}>}
  */
 async function runCycle(onEvent = () => {}) {
+    const startedAt = new Date().toISOString();
     const companies = data.getActiveCompanies();
     const profiles = data.getActiveProfiles();
     const summary = { companies: companies.length, newJobs: 0, closedJobs: 0, matches: 0, failures: [] };
@@ -89,6 +90,21 @@ async function runCycle(onEvent = () => {}) {
         // writes it while it's still NULL).
         data.setFirstScrapedAt(company.id, new Date().toISOString());
     }
+
+    // Written unconditionally, success or partial failure — a scrape where
+    // three companies failed still refreshed everyone else's data, and the
+    // search page's "last updated" needs to reflect that. A cycle that
+    // crashes outright (never reaches here) correctly leaves the previous
+    // row standing, which is exactly what should happen: nothing was
+    // actually refreshed.
+    data.recordScrapeRun({
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        companies: summary.companies,
+        newJobs: summary.newJobs,
+        closedJobs: summary.closedJobs,
+        failures: summary.failures,
+    });
 
     return summary;
 }

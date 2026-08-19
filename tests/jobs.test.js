@@ -7,9 +7,10 @@ process.env.JT_DB_PATH = ':memory:';
 const test = require('node:test');
 const assert = require('node:assert');
 const { db } = require('../server/data/connection');
-const { addCompany, setFirstScrapedAt } = require('../server/data/companies');
+const { addCompany, setFirstScrapedAt, setCompanyActive } = require('../server/data/companies');
 const { createUser } = require('../server/data/users');
-const { queryJobs, countJobs, upsertJobSnapshot, countOpenJobs, closeMissingJobs } = require('../server/data/jobs');
+const { queryJobs, countJobs, upsertJobSnapshot, countOpenJobs, closeMissingJobs, filterOptions } = require('../server/data/jobs');
+const { GUEST } = require('../server/data/tenancy');
 
 /**
  * Pagination is only trustworthy if countJobs and queryJobs can never
@@ -112,6 +113,39 @@ test('the same is true sorted by title, where every row also ties on title lengt
 
     assert.equal(seenIds.length, 23);
     assert.equal(new Set(seenIds).size, 23);
+});
+
+// ---------------------------------------------------------------------------
+// Default sort interleaves companies — one company's bulk-loaded history must
+// not bury every other company on page one (see the comment on queryJobs).
+// ---------------------------------------------------------------------------
+
+test('the default sort shows every company\'s newest job before anyone\'s second-newest', () => {
+    // Company A gets 5 jobs all bulk-loaded at once, all newer than anything
+    // company B has — the exact shape that used to monopolize page one.
+    const companyA = seedJobsWithSharedTimestamp(5, '2026-08-10T00:00:00.000Z');
+    const companyB = addCompany({ name: `Interleave B ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyB, {
+        externalId: 'b-1', title: 'B Job', location: 'Tel Aviv', applyUrl: 'https://example.com',
+    });
+    // Force B's single job to be older than every one of A's, so a plain
+    // first_seen_at DESC sort would put all 5 of A's jobs ahead of it.
+    db.prepare('UPDATE job_snapshots SET first_seen_at = ? WHERE company_id = ?').run('2026-08-01T00:00:00.000Z', companyB);
+
+    // pageSize large enough to include every row from every company seeded by
+    // every test in this file (they share one in-memory database) — the point
+    // here is A and B's relative order, not isolating them to their own page.
+    const { jobs } = queryJobs(userId, { page: 1, pageSize: 100 });
+    const companiesInOrder = jobs.filter((j) => j.companyId === companyA || j.companyId === companyB).map((j) => j.companyId);
+
+    // B's one job must appear before A's SECOND job — not pushed behind all 5
+    // of A's bulk-loaded rows just because every one of them has a later
+    // first_seen_at than B's single job.
+    const bIndex = companiesInOrder.indexOf(companyB);
+    const aIndices = companiesInOrder.reduce((acc, id, i) => (id === companyA ? [...acc, i] : acc), []);
+    assert.ok(bIndex >= 0, 'company B\'s job must be on the first page at all');
+    assert.equal(aIndices.length, 5, 'sanity check: all 5 of company A\'s jobs are on this page');
+    assert.ok(bIndex < aIndices[1], 'company B must interleave before company A\'s second job, not trail all of A\'s jobs');
 });
 
 // ---------------------------------------------------------------------------
@@ -259,6 +293,35 @@ test('countOpenJobs only counts is_still_open=1 rows for that company', () => {
     closeMissingJobs(companyId, ['a']);
     assert.equal(countOpenJobs(companyId), 1, 'closing one job at this company must not touch the other company');
     assert.equal(countOpenJobs(otherCompanyId), 1);
+});
+
+// ---------------------------------------------------------------------------
+// filterOptions()'s company list — a deactivated company must not still be
+// offered as a filter option (see CLAUDE.md's note on IBM Israel, which
+// genuinely, confirmedly returns zero Israel jobs — deactivating it is the
+// fix, not a mapping bug).
+// ---------------------------------------------------------------------------
+
+test('a deactivated company is excluded from the filterable company list', () => {
+    const companyId = addCompany({ name: `Deactivate Me ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'x', title: 'X', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    const before = filterOptions(GUEST).companies;
+    assert.ok(before.some((c) => c.id === companyId), 'sanity check: the active company starts out listed');
+
+    setCompanyActive(companyId, false);
+
+    const after = filterOptions(GUEST).companies;
+    assert.ok(!after.some((c) => c.id === companyId), 'a deactivated company must not appear as a filter option');
+});
+
+test('setCompanyActive(true) makes a company reappear in the filter list', () => {
+    const companyId = addCompany({ name: `Reactivate Me ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    setCompanyActive(companyId, false);
+    assert.ok(!filterOptions(GUEST).companies.some((c) => c.id === companyId));
+
+    setCompanyActive(companyId, true);
+    assert.ok(filterOptions(GUEST).companies.some((c) => c.id === companyId));
 });
 
 test('setFirstScrapedAt is set once, and every later call is a no-op — the new-company trap depends on this', () => {

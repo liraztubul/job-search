@@ -41,4 +41,16 @@ function setFirstScrapedAt(companyId, timestamp) {
     );
 }
 
-module.exports = { getActiveCompanies, listCompanies, findCompanyByName, addCompany, setFirstScrapedAt };
+/**
+ * Stops (or resumes) tracking a company: `is_active = 0` excludes it from
+ * `getActiveCompanies()` (no future scrape cycle touches it) AND from the
+ * filter dropdown (`filterOptions()` in jobs.js) — a company the site has
+ * stopped tracking must not still be offered as something to browse. Existing
+ * `job_snapshots` rows are left untouched either way; this only changes
+ * whether the company is scraped and offered going forward.
+ */
+function setCompanyActive(companyId, isActive) {
+    db.prepare('UPDATE watched_companies SET is_active = ? WHERE id = ?').run(isActive ? 1 : 0, companyId);
+}
+
+module.exports = { getActiveCompanies, listCompanies, findCompanyByName, addCompany, setFirstScrapedAt, setCompanyActive };

@@ -132,9 +132,12 @@ The server has no login on localhost, on purpose — see
 `server/web/middleware/auth.js`. To reach it from a phone:
 
 ```bash
-node tools/set-password.js "a long password"   # prints two lines for .env
-HOST=0.0.0.0 JT_BEHIND_HTTPS=1 node server/web/server.js
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # -> JT_SESSION_SECRET
+HOST=0.0.0.0 JT_BEHIND_HTTPS=1 JT_SESSION_SECRET=<paste> node server/web/server.js
 ```
+
+Then register an account through the UI like anyone else would — there's no
+separate global password any more, see `server/web/middleware/auth.js`.
 
 Put a TLS terminator in front (Fly, Railway, Caddy, or a Cloudflare Tunnel).
 Don't do TLS inside Node.

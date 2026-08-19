@@ -49,6 +49,24 @@ async function call(method, path, body, opts) {
 // account at any provider
 // ---------------------------------------------------------------------------
 
+test('GET /api/session reports mailConfigured false when no BREVO_API_KEY is set', async () => {
+    assert.equal(emailService.isConfigured(), false, 'this test file must not have a real key set');
+    const session = await call('GET', '/api/session', null, { remoteAddress: '198.51.100.70' });
+    assert.equal(session.body.mailConfigured, false);
+});
+
+test('GET /api/session flips to mailConfigured true the moment a key exists — no second switch', async () => {
+    // Restored immediately, in a finally — every other test in this file
+    // depends on the console-log fallback staying active.
+    process.env.BREVO_API_KEY = 'fake-key-for-this-assertion-only';
+    try {
+        const session = await call('GET', '/api/session', null, { remoteAddress: '198.51.100.71' });
+        assert.equal(session.body.mailConfigured, true);
+    } finally {
+        delete process.env.BREVO_API_KEY;
+    }
+});
+
 test('emailService logs instead of sending when BREVO_API_KEY is unset', async () => {
     assert.equal(emailService.isConfigured(), false, 'this test file must not have a real key set');
 

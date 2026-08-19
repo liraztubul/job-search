@@ -7,6 +7,7 @@
  */
 
 const { db } = require('./connection');
+const { requireUser } = require('./tenancy');
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
@@ -54,12 +55,57 @@ function getSessionEpoch(id) {
     return row ? row.session_epoch : null;
 }
 
+/**
+ * Sets a new password directly and bumps `session_epoch` in the same
+ * statement — the escape-hatch counterpart to `data/passwordResets.js`'s
+ * `confirmPasswordReset`, used by `tools/reset-password.js` when there is no
+ * token flow to go through (the owner already has database access). Any
+ * session held by anyone else for this account stops verifying the instant
+ * this runs, for the identical reason a mailed reset link does the same.
+ */
+function setPasswordAndBumpEpoch(userId, passwordHash) {
+    db.prepare('UPDATE users SET password_hash = ?, session_epoch = session_epoch + 1 WHERE id = ?').run(
+        passwordHash,
+        userId
+    );
+}
+
+/**
+ * Removes this account and every row it owns, children first, so a process
+ * that dies partway through never leaves a row pointing at a user that no
+ * longer exists. No `db.transaction()` — see the identical reasoning in
+ * `data/passwordResets.js`; a remote libSQL connection is stateless HTTP.
+ *
+ * `notifications_sent` has no `user_id` of its own — it's owned indirectly
+ * through `search_profiles.profile_id`, so it has to go before
+ * `search_profiles` does, via a subquery rather than a join (deletes can't
+ * join the table they're deleting from and the table naming its own rows).
+ *
+ * Shared tables (`job_snapshots`, `watched_companies`) are untouched on
+ * purpose — a scrape's own data belongs to everyone, not to whoever happened
+ * to be signed in when it ran.
+ */
+function deleteUserAccount(userId) {
+    const owner = requireUser(userId);
+
+    db.prepare('DELETE FROM applications WHERE user_id = ?').run(owner);
+    db.prepare(
+        'DELETE FROM notifications_sent WHERE profile_id IN (SELECT id FROM search_profiles WHERE user_id = ?)'
+    ).run(owner);
+    db.prepare('DELETE FROM search_profiles WHERE user_id = ?').run(owner);
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(owner);
+    db.prepare('DELETE FROM email_confirmations WHERE user_id = ?').run(owner);
+    db.prepare('DELETE FROM users WHERE id = ?').run(owner);
+}
+
 module.exports = {
     findUserByEmail,
     findUserById,
     createUser,
     countUsers,
     updateUserPasswordHash,
+    setPasswordAndBumpEpoch,
+    deleteUserAccount,
     getSessionEpoch,
     normalizeEmail,
 };

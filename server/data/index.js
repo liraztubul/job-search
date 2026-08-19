@@ -11,6 +11,7 @@ module.exports = {
     ...require('./jobs'),
     ...require('./applications'),
     ...require('./notifications'),
+    ...require('./scrapeRuns'),
     ...require('./users'),
     ...require('./passwordResets'),
     ...require('./emailConfirmations'),

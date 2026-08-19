@@ -440,11 +440,15 @@ repository function that skips the guard turns the suite red.
   is erased on every deploy. It needs a persistent volume mounted at the path in
   `data/connection.js`, and that is a one-time configuration, not a code change.
 
-**Not built yet, and required before this is public:** email verification,
-password reset, and a privacy policy — real personal data belonging to other
-people brings real obligations. Self-registration, login, and rate limiting
-on both are built; see ADR-008 for why the obvious next step for the first
-two (SMS or email one-time codes) isn't next after all.
+**Update: all three built.** Self-registration, login, and rate limiting were
+already in place; password reset, registration email confirmation (mail
+delivery itself is a separate, optional switch — see
+`server/services/emailService.js`), a privacy policy (`client/privacy.html`)
+and self-service account deletion (`DELETE /api/account`) have since shipped
+too — see docs/ROADMAP.md's "Password reset and registration email
+confirmation" and "Privacy policy and account deletion" entries. See ADR-008
+for why the obvious next step for the first two (SMS or email one-time codes)
+wasn't the direction taken.
 
 ---
 

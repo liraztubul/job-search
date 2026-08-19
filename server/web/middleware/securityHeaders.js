@@ -48,7 +48,7 @@ function deploymentWarnings({ host, authEnabled }) {
     if (exposed && !authEnabled) {
         warnings.push(
             `listening on ${host} with no accounts configured — anyone who finds the port ` +
-                'gets in. Run: node tools/set-password.js'
+                'gets in. Set JT_SESSION_SECRET (see docs/DEPLOY.md), restart, then register an account.'
         );
     }
 

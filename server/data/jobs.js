@@ -128,6 +128,42 @@ function closeMissingJobs(companyId, seenExternalIds, now = new Date().toISOStri
     return toClose.length;
 }
 
+/**
+ * Every open job's `external_id` for a company — what `closeMissingJobs`
+ * treats as "seen" when nothing new was actually scraped. Lets a caller that
+ * only wants to close ONE specific job reuse `closeMissingJobs` instead of a
+ * second closing routine: pass this list minus the one external_id that
+ * should close, and every other currently-open job counts as "seen" and is
+ * left alone. See `services/jobVerifyService.js`.
+ */
+function listOpenExternalIds(companyId) {
+    return db
+        .prepare('SELECT external_id FROM job_snapshots WHERE company_id = ? AND is_still_open = 1')
+        .all(companyId)
+        .map((row) => row.external_id);
+}
+
+/**
+ * One job by id, with enough of its company to verify and close it —
+ * `companyId` for `closeMissingJobs`/`listOpenExternalIds`, `externalId` to
+ * know which one to remove from the "seen" list, `companyAdapterType` so a
+ * caller can refuse to verify a `manual`-adapter company at all (see
+ * services/jobVerifyService.js — those companies are hand-maintained
+ * specifically because their site blocks automated requests, so a
+ * server-side fetch would always read as "gone").
+ */
+function findJobById(jobId) {
+    return db
+        .prepare(
+            `SELECT j.id, j.external_id AS externalId, j.apply_url AS applyUrl, j.is_still_open AS isStillOpen,
+                    j.company_id AS companyId, c.name AS company, c.adapter_type AS companyAdapterType
+               FROM job_snapshots j
+               JOIN watched_companies c ON c.id = j.company_id
+              WHERE j.id = ?`
+        )
+        .get(jobId);
+}
+
 // ---------------------------------------------------------------------------
 // Queries for the web UI
 // ---------------------------------------------------------------------------
@@ -263,6 +299,19 @@ function clampPaging(filters) {
  * order (a whole scrape's worth of jobs — 673 of them, for Elbit — share one
  * timestamp), so without a tiebreaker SQLite is free to order ties
  * differently between two calls and a job can appear on two pages, or none.
+ *
+ * `companyRecency` (the default sort only, not "sort by title") is the fix for
+ * a real usability bug: the day a company is added, its whole back catalogue
+ * lands with nearly-identical `first_seen_at` values from that one bulk
+ * insert, all newer than any other company's most recent job — so plain
+ * `first_seen_at DESC` put that one company's postings across the entire
+ * first page and made the site look like it tracked a single employer. A
+ * `ROW_NUMBER() OVER (PARTITION BY j.company_id ORDER BY first_seen_at DESC)`
+ * ranks each company's own postings by recency, and ordering by that rank
+ * first means every company's single newest posting is shown before anyone's
+ * second-newest — genuinely new postings (which have rank 1 the moment they
+ * exist) still surface immediately, but one company's bulk-loaded history can
+ * no longer bury every other company on page one.
  */
 function queryJobs(userId, filters = {}) {
     const owner = resolveViewer(userId);
@@ -271,7 +320,7 @@ function queryJobs(userId, filters = {}) {
     const sort =
         filters.sort === 'title'
             ? 'j.title COLLATE NOCASE ASC, j.id DESC'
-            : 'j.first_seen_at DESC, j.id DESC';
+            : 'companyRecency ASC, j.first_seen_at DESC, j.id DESC';
 
     const jobs = db
         .prepare(
@@ -280,7 +329,8 @@ function queryJobs(userId, filters = {}) {
                     j.experience_level AS experienceLevel, j.department, j.posted_at AS postedAt,
                     j.first_seen_at AS firstSeenAt, j.is_still_open AS isStillOpen,
                     c.name AS company, c.id AS companyId, c.first_scraped_at AS companyFirstScrapedAt,
-                    a.status, a.notes, a.applied_at AS appliedAt
+                    a.status, a.notes, a.applied_at AS appliedAt,
+                    ROW_NUMBER() OVER (PARTITION BY j.company_id ORDER BY j.first_seen_at DESC, j.id DESC) AS companyRecency
                FROM job_snapshots j
                JOIN watched_companies c ON c.id = j.company_id
                LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = ?
@@ -352,10 +402,15 @@ function filterOptions(userId) {
         .slice(0, 60);
 
     const options = {
+        // is_active = 0 excludes a company from the filter entirely, not just
+        // from future scrapes — a company the site has stopped tracking (see
+        // CLAUDE.md's note on IBM Israel) must not still be offered as a
+        // filter option implying there's something behind it to browse.
         companies: db
             .prepare(
                 `SELECT c.id, c.name, COUNT(j.id) AS count
                    FROM watched_companies c LEFT JOIN job_snapshots j ON j.company_id = c.id
+                  WHERE c.is_active = 1
                   GROUP BY c.id ORDER BY c.name`
             )
             .all(),
@@ -382,4 +437,13 @@ function filterOptions(userId) {
     return options;
 }
 
-module.exports = { upsertJobSnapshot, queryJobs, countJobs, filterOptions, countOpenJobs, closeMissingJobs };
+module.exports = {
+    upsertJobSnapshot,
+    queryJobs,
+    countJobs,
+    filterOptions,
+    countOpenJobs,
+    closeMissingJobs,
+    listOpenExternalIds,
+    findJobById,
+};

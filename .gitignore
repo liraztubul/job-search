@@ -12,5 +12,11 @@ node_modules/
 # regenerate any time, never worth committing
 tools/output/
 
-# your own manual job lists — personal, like the DB
-data/manual/*.json
+# data/manual/*.json is tracked, deliberately — see git history for why this
+# line used to ignore it. It looked like "personal, like the DB" but isn't:
+# these are public job advertisements copied by hand from a company's own
+# careers page (Rafael, behind Reblaze bot protection) — the input to a
+# public listing, not personal data. Ignoring it meant the scheduled scrape
+# workflow (which checks out from git) could never see the file and failed on
+# every single run. The line that actually belongs here draws the real
+# boundary: personal vs. public, not data vs. code.

@@ -9,19 +9,27 @@
  *
  * The moment you host it so your phone can reach it, that argument dies: the
  * port is reachable by anyone who finds it. So auth turns itself on when
- * JT_PASSWORD_HASH exists in the environment, and stays out of the way locally.
+ * JT_SESSION_SECRET exists in the environment, and stays out of the way
+ * locally. Accounts themselves live in the `users` table (ADR-007), not in the
+ * environment — the secret only signs sessions.
  *
- * WHAT IT IS NOT
+ * WHAT'S HERE
  *
- * Not a full account system yet. Registration, login and rate limiting
- * (server/web/middleware/rateLimit.js) work; email verification and password
- * reset do not exist yet — see ARCHITECTURE.md ADR-007 and ROADMAP.md.
+ * Registration, login, rate limiting (server/web/middleware/rateLimit.js),
+ * password reset and registration email confirmation
+ * (server/services/verificationService.js) are all built. Sending the reset/
+ * confirmation mail is a separate, optional switch — see
+ * server/services/emailService.js and client/login.html.
  *
  * Uses node:crypto only: scrypt for the password, HMAC for the session cookie.
  * No dependency, nothing to keep patched.
  *
  * SETUP
- *   node tools/set-password.js          prints the two lines for your .env
+ *   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ *   Put the output in .env as JT_SESSION_SECRET, restart, then register an
+ *   account through the UI like anyone else would. See docs/DEPLOY.md.
+ *
+ * Already locked out and need in without email? node tools/reset-password.js
  *
  * DEPLOYMENT
  *   Put this behind HTTPS — a cookie sent over plain HTTP is readable by anyone

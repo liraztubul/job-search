@@ -123,3 +123,22 @@ CREATE TABLE IF NOT EXISTS notifications_sent (
     sent_at TEXT NOT NULL,
     UNIQUE(job_snapshot_id, profile_id)
 );
+
+-- One row per scrape cycle (server/services/scrapeService.js's runCycle),
+-- written unconditionally at the end of every cycle regardless of whether
+-- individual companies failed — see docs/ROADMAP.md's fuller per-company
+-- design for later; this is the whole-cycle version that's enough to answer
+-- "when was the data last refreshed," which is what the search page shows.
+-- A scheduler that silently stops running (GitHub disables a workflow with no
+-- activity for 60 days) must not go unnoticed just because the site still
+-- serves whatever was last collected — see server/domain/scrapeFreshness.js.
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    companies INTEGER NOT NULL,
+    new_jobs INTEGER NOT NULL,
+    closed_jobs INTEGER NOT NULL,
+    failures INTEGER NOT NULL,       -- count of companies that failed this cycle
+    failure_details TEXT             -- JSON array of {company, error}, or NULL when failures = 0
+);

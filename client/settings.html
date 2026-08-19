@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>הגדרות חשבון — JobTrail</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>JobTrail</h1>
+  <nav class="main-nav" aria-label="ניווט ראשי">
+    <a href="index.html">חיפוש משרות</a>
+    <a href="tracker.html">מעקב הגשות</a>
+  </nav>
+  <span class="spacer"></span>
+  <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false">
+    <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+    <span id="theme-label">מצב לילה</span>
+  </button>
+  <div id="account-slot"><a class="btn" href="login.html">התחברות</a></div>
+</header>
+
+<main style="max-width:32rem">
+  <div class="card">
+    <h2 style="margin-top:0">מחיקת חשבון</h2>
+    <p>מחיקת החשבון מסירה לצמיתות את כתובת האימייל שלך, הסיסמה, וכל המשרות
+      שסימנת (סטטוס הגשה, הערות ותאריכים). <strong>לא ניתן לבטל פעולה
+      זו.</strong> משרות עצמן — שהן מידע ציבורי, לא אישי — אינן מושפעות.</p>
+    <p>ראי גם את <a href="privacy.html">מדיניות הפרטיות</a>.</p>
+
+    <form id="delete-form">
+      <div class="field">
+        <label for="confirm-email">הקלידי את כתובת האימייל של החשבון לאישור</label>
+        <input type="email" id="confirm-email" class="ltr" autocomplete="off" required>
+      </div>
+      <div class="field" style="margin-top:.75rem">
+        <label for="confirm-password">סיסמה נוכחית</label>
+        <input type="password" id="confirm-password" autocomplete="current-password" required>
+      </div>
+
+      <p class="results-note" id="error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
+
+      <button type="submit" class="btn btn-danger" id="submit">מחיקת החשבון לצמיתות</button>
+    </form>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="privacy.html">מדיניות פרטיות</a>
+</footer>
+
+<script src="js/ui.js"></script>
+<script>
+'use strict';
+
+initUI();
+
+let sessionEmail = null;
+
+function showError(message) {
+  $('error').textContent = message;
+}
+
+fetch('/api/session')
+  .then((r) => r.json())
+  .then((session) => {
+    if (!session.authenticated) {
+      location.replace('login.html');
+      return;
+    }
+    sessionEmail = session.email;
+  })
+  .catch(() => showError('אין חיבור לשרת.'));
+
+$('delete-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  showError('');
+
+  const typedEmail = $('confirm-email').value.trim().toLowerCase();
+  if (!sessionEmail || typedEmail !== sessionEmail.toLowerCase()) {
+    showError('כתובת האימייל שהוקלדה אינה תואמת לחשבון המחובר.');
+    return;
+  }
+
+  $('submit').disabled = true;
+
+  const response = await fetch('/api/account', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: $('confirm-password').value }),
+  }).catch(() => null);
+
+  if (!response) {
+    showError('אין חיבור לשרת.');
+    $('submit').disabled = false;
+    return;
+  }
+
+  if (response.status === 429) {
+    const body = await response.json().catch(() => ({}));
+    const seconds = Number(body.retryAfterSec) || 0;
+    showError(seconds > 0 ? `יותר מדי ניסיונות. נסי שוב עוד ${seconds} שניות.` : 'יותר מדי ניסיונות. נסי שוב עוד רגע.');
+    $('submit').disabled = false;
+    return;
+  }
+
+  if (response.ok) {
+    location.replace('login.html?deleted=1');
+    return;
+  }
+
+  const body = await response.json().catch(() => ({}));
+  showError(body.error === 'wrong password' ? 'סיסמה שגויה.' : body.error || 'משהו השתבש.');
+  $('confirm-password').value = '';
+  $('submit').disabled = false;
+});
+</script>
+</body>
+</html>

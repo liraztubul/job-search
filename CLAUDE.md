@@ -84,8 +84,15 @@ rather than a second untested path.
 function touching `applications` / `search_profiles` takes `userId` first and
 throws without it; `tests/tenancy.test.js` proves it. See ADR-007.
 
-Missing before strangers use this: email verification, password reset, login
-rate limiting, privacy policy.
+Login rate limiting, password reset and registration email confirmation are
+all built (`server/web/middleware/rateLimit.js`,
+`server/services/verificationService.js`) — but actually sending the mail is a
+separate, optional switch left off by default (`server/services/emailService.js`);
+`client/login.html` hides the reset entry point and warns plainly at
+registration when it can't be delivered. `tools/reset-password.js` is the
+owner's escape hatch in the meantime. A privacy policy lives at
+`client/privacy.html`, linked from every page, and a registered account can
+delete itself and everything it owns from **הגדרות** (`client/settings.html`).
 
 ## Commands
 
@@ -95,7 +102,8 @@ npm test                          # node --test — fast, no network, no DB
 node server/seed.js               # one-time: creates jobtrail.db
 node server/main.js               # one full check cycle
 node server/web/server.js         # web UI at http://localhost:3000
-node tools/set-password.js "…"    # prints JT_SESSION_SECRET for .env
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # -> JT_SESSION_SECRET, see docs/DEPLOY.md
+node tools/reset-password.js --email x --password y   # owner's escape hatch when mail can't be sent
 
 node tools/add-company.js         # list adapters + watched companies
 node tools/add-company.js --name "Amazon Israel" --type amazon --country ISR
@@ -382,3 +390,49 @@ up in web search, Hebrew or English — closest matches were an unrelated
 Danish retail chain (Matas A/S) and an unrelated Dutch electronics company
 (Matas Electronics B.V.). Needs the user to confirm what company this refers
 to before it can be investigated.
+
+**IBM Israel deactivated (2026-08-19) — confirmed not a bug.** IBM had been
+registered on the `ibm` adapter (a bespoke Elasticsearch client for
+`www-api.ibm.com/search/api/v2`) returning 0 Israel jobs since it was added,
+which read on the site as "IBM has no openings" — a claim the site can't
+actually vouch for. Re-verified live rather than trusting the old note: the
+same `field_keyword_05: "Israel"` term query the adapter uses returns
+`{value: 0}`, while the identical query for `"India"` returns 480 real hits
+(proving the query mechanism itself works), and a free-text search for
+"Israel" across every field also returns zero. The adapter isn't broken —
+IBM's Elasticsearch index genuinely has nothing tagged Israel right now.
+Deactivated via `node tools/set-company-active.js --name "IBM Israel"
+--active false` rather than deleting the row (history stays, in case this
+changes) — `filterOptions()` in `server/data/jobs.js` was also fixed to
+exclude `is_active = 0` companies from the browsable filter list, since
+deactivating previously only stopped future scrapes and left the company
+still listed with a permanent "(0)" next to it. **This needs the same
+`is_active = 0` update run against the live Turso database** — this tool
+only touched the local file; see `tools/set-company-active.js`'s own header
+for how to point it at Turso.
+
+**Three companies added (2026-08-19), all existing adapters, no new code:**
+- **Amdocs** — Eightfold tenant (`jobs.amdocs.com`, domain `amdocs.com`,
+  confirmed by the `static.vscdn.net/.../amdocs/...` asset path on its own
+  careers page). Registered as "Amdocs Israel". Currently only 9 open
+  positions worldwide, none in Israel — same "adapter throws on purpose"
+  pattern as Snyk/Broadcom/Syneron-Candela below; not a bug, will populate
+  automatically.
+- **SanDisk** — SmartRecruiters tenant, company identifier `Sandisk` (found
+  via the `jobs.smartrecruiters.com/Sandisk` link on sandisk.com/careers).
+  Registered as "SanDisk Israel". 292 open positions worldwide; confirmed at
+  least one genuinely Israeli one (Lead Software Engineer, Software Defined
+  Storage — Kfar Saba) before trusting the token.
+- **KLA (KLA-Tencor)** — Workday tenant, host `kla.wd1.myworkdayjobs.com`,
+  tenant `kla`, site `Search` (found via the `kla.wd1.myworkdayjobs.com/Search`
+  links on kla.com/careers). Registered as "KLA Israel". Flat top-level
+  `Country` facet (same shape as Marvell). 55 real Israel jobs confirmed —
+  Migdal Ha'emek and Yavne, both real KLA sites (Yavne via the Orbotech
+  acquisition), titles plausible for a semiconductor-equipment R&D site
+  (Optical Engineer, Algorithm Developer, System Integration Engineer, …).
+
+All three verified with a real `node server/main.js` cycle before being
+considered done, not just a one-off probe: KLA and SanDisk both scraped
+clean, Amdocs failed exactly as expected (zero-match throw), and Rafael's
+three manual jobs and the newly-deactivated IBM were both unaffected by the
+same run.

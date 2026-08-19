@@ -33,9 +33,9 @@
  * want to own.
  *
  * The moment it is reachable from outside, configure auth too: see
- * web/middleware/auth.js and `node tools/set-password.js`. The server prints a
- * warning at startup if it is listening on a public address without either —
- * both are otherwise silent failures.
+ * web/middleware/auth.js (set JT_SESSION_SECRET, then register an account).
+ * The server prints a warning at startup if it is listening on a public
+ * address without either — both are otherwise silent failures.
  */
 
 const http = require('http');

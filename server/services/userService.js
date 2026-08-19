@@ -77,12 +77,32 @@ async function authenticate({ email, password } = {}) {
 
 /**
  * @param {number|null} userId
- * @returns {{emailVerified: boolean}|null} null when nobody is signed in
+ * @returns {{email: string, emailVerified: boolean}|null} null when nobody is signed in
  */
 function currentUserInfo(userId) {
     if (!userId) return null;
     const user = data.findUserById(userId);
-    return user ? { emailVerified: Boolean(user.email_verified_at) } : null;
+    return user ? { email: user.email, emailVerified: Boolean(user.email_verified_at) } : null;
 }
 
-module.exports = { register, authenticate, currentUserInfo, MIN_PASSWORD_LENGTH };
+/**
+ * Deletion is irreversible, so it is gated on the current password rather
+ * than the session alone — a hijacked cookie must not be enough on its own
+ * to destroy the account, only to use it.
+ *
+ * @returns {Promise<{ok: true} | {ok: false, error: string}>}
+ */
+async function deleteAccount(userId, password) {
+    const user = data.findUserById(userId);
+    // Should not happen through a real route (the session already names a
+    // live account), but a deleted-out-from-under-you session is not a crash.
+    if (!user) return { ok: false, error: 'account not found' };
+
+    const valid = await verifyPassword(String(password || ''), user.password_hash);
+    if (!valid) return { ok: false, error: 'wrong password' };
+
+    data.deleteUserAccount(userId);
+    return { ok: true };
+}
+
+module.exports = { register, authenticate, currentUserInfo, deleteAccount, MIN_PASSWORD_LENGTH };

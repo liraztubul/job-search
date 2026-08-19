@@ -88,6 +88,44 @@ created, with no way to appeal. Blocking becomes worth it once there's
 somewhere for that appeal to go, or once unconfirmed accounts turn out to be
 a real abuse vector in practice — neither is true yet.
 
+**Since this was written: mail sending was deliberately switched off.** Every
+transactional provider requires a postal address at signup, and that's not a
+trade the owner is willing to make for a student project — see
+`server/services/emailService.js`. The flow above still works end to end; it
+just can't deliver the link. `client/login.html` now derives whether mail is
+configured from `GET /api/session`'s `mailConfigured` field (no second
+switch — adding `BREVO_API_KEY` is the only step that turns the reset link
+back on) and hides the entry point while it's off, with an unmissable notice
+at registration that there is no recovery. The routes and `client/reset.html`
+stay reachable regardless, because a link the owner pulls from the server log
+must still work. `tools/reset-password.js` is the owner's own escape hatch in
+the meantime — it requires database credentials, so it isn't a backdoor,
+just that same access going through the real `hashPassword` instead of a
+second implementation.
+
+---
+
+## Privacy policy and account deletion — done
+
+**Status: fixed.** ADR-007 listed a privacy policy as required before
+strangers use this, alongside email verification and password reset (both
+above). `client/privacy.html` is now linked from the footer of every page and
+from the registration screen, states plainly what's collected (email, a
+scrypt hash, application statuses), where it lives (Turso/EU, Render/
+Frankfurt), and what's still missing (email verification isn't enforced,
+password recovery depends on mail being configured).
+
+A policy promising deletion needed deletion to exist: `DELETE /api/account`
+(`server/services/userService.js`'s `deleteAccount`, `server/data/users.js`'s
+`deleteUserAccount`) requires the current password, removes every row the
+account owns children-first with no `db.transaction()` (same reasoning as
+`passwordResets.js` — a remote libSQL connection is stateless HTTP), and
+leaves shared tables (`job_snapshots`, `watched_companies`) untouched.
+`client/settings.html` gates it behind typing the account's own email, not a
+checkbox. `tests/accountDeletion.test.js` proves deletion removes exactly one
+account's rows and nothing of a second account's — the same leak class
+ADR-007 exists to prevent, now checked for this code path too.
+
 ---
 
 ## First-run onboarding
@@ -145,23 +183,38 @@ the company that failed.
 
 ---
 
-## System status the user can see
+## System status the user can see — partly done
 
-There's currently no way to tell whether the data is fresh or whether a
-company's adapter is quietly broken. IBM has returned 0 jobs for a while and
-nothing in the UI says so.
+**Status: the "is the data fresh" half is fixed; the per-company half is
+still planned.** There was previously no way to tell whether the scheduled
+scrape (`.github/workflows/scrape.yml`) had actually run recently, and a
+disabled or silently failing scheduler would leave the site serving old
+listings with total confidence.
 
-**Planned:** a `scrape_runs` table (`started_at, finished_at, company_id,
-jobs_found, status, error`) written by `scrapeService`, surfaced as a "last
-updated" timestamp in the header, a per-company status row on the Settings
-page, and a dismissible warning after three consecutive failed runs for one
-company.
+A `scrape_runs` table now exists (`server/data/schema.sql`) — one row per
+completed cycle (`started_at, finished_at, companies, new_jobs, closed_jobs,
+failures, failure_details`), written unconditionally at the end of
+`scrapeService.runCycle()` regardless of whether individual companies failed,
+since a partial failure still refreshed everyone else's data.
+`server/domain/scrapeFreshness.js` is the pure "is this stale" rule (no scrape
+in 24+ hours, or none ever — the scrape itself runs every 3 hours, see the
+cron comment in `.github/workflows/scrape.yml`) and the search page shows
+"עודכן לפני 3 שעות" or a prominent warning when it's past that line — see
+`GET /api/meta`'s `lastScrapeAt`/`scrapeStale` fields.
 
-**Also planned alongside this:** the sanity gate described in
-ARCHITECTURE.md §4.2 — if a scrape returns 0 jobs for a company that had jobs
-before, mark the run failed and don't overwrite the previous data. A broken
-scraper and a company that genuinely closed every role look identical in the
-data; only one of them is real, and the gate is what tells them apart.
+**Still planned:** the richer *per-company* version originally sketched here
+(`company_id, jobs_found, status, error` per row, a per-company status row on
+a Settings page, a dismissible warning after three consecutive failures for
+one company). The whole-cycle table above answers "is anything fresh" but not
+"which specific company's adapter is quietly broken" — that's this section's
+unfinished half.
+
+**Correction to this section's original text:** it proposed the sanity gate
+(ARCHITECTURE.md §4.2) as future work alongside the table above. That was
+already wrong when written — `server/domain/scrapeSanity.js`'s
+`evaluateSanityGate` is wired into `scrapeService.runCycle()` and has its own
+test coverage (`tests/scrapeSanity.test.js`). It's unrelated to the freshness
+work in this section; the two were never actually coupled.
 
 ---
 

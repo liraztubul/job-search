@@ -202,6 +202,42 @@ function initLocationMultiselect() {
   });
 }
 
+/**
+ * "עודכן לפני 3 שעות" — a coarse relative time, not a stopwatch: minutes below
+ * an hour, whole hours below a day, whole days after that. Precision nobody
+ * asked for ("3 hours and 12 minutes ago") would just make the note noisier.
+ */
+function formatRelativeHebrew(isoValue) {
+  const elapsedMs = Date.now() - new Date(isoValue).getTime();
+  const minutes = Math.floor(elapsedMs / 60000);
+  if (minutes < 1) return 'ממש עכשיו';
+  if (minutes < 60) return `לפני ${minutes.toLocaleString('he-IL')} דקות`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? 'לפני שעה' : `לפני ${hours.toLocaleString('he-IL')} שעות`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'לפני יום' : `לפני ${days.toLocaleString('he-IL')} ימים`;
+}
+
+/**
+ * When the scrape never ran, or hasn't in over 24 hours (server/domain/
+ * scrapeFreshness.js — a run every 3 hours is normal, going a full day
+ * without one isn't), say so loudly instead of letting a silent scheduler
+ * failure look like a quiet, up-to-date site.
+ */
+function renderFreshness() {
+  const note = $('freshness');
+  if (!note) return;
+  note.classList.toggle('stale', Boolean(meta.scrapeStale));
+  if (!meta.lastScrapeAt) {
+    note.textContent = 'עדיין לא בוצע איסוף נתונים אוטומטי — הרשימה עשויה להיות חלקית.';
+    return;
+  }
+  const relative = formatRelativeHebrew(meta.lastScrapeAt);
+  note.textContent = meta.scrapeStale
+    ? `עודכן לאחרונה ${relative} — הרענון האוטומטי לא רץ ביממה האחרונה, ייתכן שהמשרות אינן עדכניות.`
+    : `עודכן ${relative}.`;
+}
+
 async function loadMeta() {
   meta = await fetchJson('/api/meta');
   companies = meta.companies;
@@ -211,6 +247,7 @@ async function loadMeta() {
   // Absent (not an empty array) when logged out — data/jobs.js's
   // filterOptions() never runs the per-account query for a guest at all.
   fillSelect($('f-status'), meta.statuses || [], HEBREW.status);
+  renderFreshness();
 }
 
 // The whole filter state (including page) lives in this one query string, so
@@ -320,10 +357,89 @@ function jobDateElement(job) {
   return el('time', { dateTime: job.displayDate, textContent: label });
 }
 
+/**
+ * Turns a card that just failed verification into an honest "this is gone"
+ * notice — the link becomes plain text (nowhere left to send anyone) and a
+ * "נסגרה" tag appears, reusing the exact styling already used for a job
+ * closed by the scheduled scrape (.job.is-closed / .tag.closed).
+ */
+function markCardClosed(article, link, job) {
+  article.classList.add('is-closed');
+  link.replaceWith(el('span', { className: 'ltr', textContent: job.title }));
+
+  let tagsList = article.querySelector('ul.tags');
+  if (!tagsList) {
+    tagsList = el('ul', { className: 'tags' });
+    article.querySelector('.job-main').append(tagsList);
+  }
+  tagsList.prepend(el('li', { className: 'tag closed', textContent: 'נסגרה' }));
+  announce(`המשרה "${job.title}" כבר לא זמינה, והוסרה.`);
+}
+
+/**
+ * The click-to-verify flow: check the ONE job someone is about to open
+ * rather than opening a possibly-dead link straight away.
+ *
+ * `window.open('', ...)` happens synchronously, inside the trusted click
+ * handler, before anything is awaited — that is what keeps it from being
+ * blocked as a popup. Everything after that only ever navigates or closes
+ * this same already-open tab; no further window.open call is made.
+ *
+ * The wait is capped at ~1s: never make someone wait on a check that exists
+ * to save them a wasted click. If verification is still running when the
+ * timer fires, the tab opens anyway — and if the answer arrives late and
+ * turns out to be "gone", the card still updates to say so, even though the
+ * tab already opened.
+ */
+const VERIFY_TIMEOUT_MS = 1000;
+
+function verifyThenOpen(job, link, article) {
+  if (link.dataset.verifying === 'true') return;
+  link.dataset.verifying = 'true';
+
+  const tab = window.open('', '_blank', 'noopener,noreferrer');
+  let settled = false;
+
+  const openTab = () => {
+    if (settled) return;
+    settled = true;
+    if (tab) {
+      try { tab.location.href = job.applyUrl; } catch { /* visitor already closed the tab */ }
+    } else {
+      // Popup blocked outright (e.g. a browser setting) — same-tab
+      // navigation is still an answer to the click, not silence.
+      location.href = job.applyUrl;
+    }
+  };
+
+  const fallback = setTimeout(openTab, VERIFY_TIMEOUT_MS);
+
+  fetch(`/api/jobs/${job.id}/verify`, { method: 'POST' })
+    .then((r) => r.json())
+    .then((result) => {
+      clearTimeout(fallback);
+      if (result.status === 'gone') {
+        if (!settled) { settled = true; tab?.close(); }
+        markCardClosed(article, link, job);
+        return;
+      }
+      openTab();
+    })
+    .catch(() => {
+      clearTimeout(fallback);
+      openTab(); // a failed check is not evidence of anything — never block on it
+    })
+    .finally(() => { link.dataset.verifying = 'false'; });
+}
+
 function jobCard(job) {
   const titleId = `job-${job.id}-title`;
   const statusId = `job-${job.id}-status`;
 
+  // href stays the real apply URL throughout — a modified click (middle
+  // click, ctrl/cmd/shift+click) is an explicit "open it yourself" gesture
+  // the browser already knows how to honour, and the verify flow below only
+  // intercepts a plain primary click.
   const link = el('a', {
     href: job.applyUrl, target: '_blank', rel: 'noopener noreferrer',
     className: 'ltr', textContent: job.title,
@@ -384,6 +500,13 @@ function jobCard(job) {
 
   const article = el('article', { className: `job${job.isStillOpen ? '' : ' is-closed'}` }, main, statusBox);
   article.setAttribute('aria-labelledby', titleId);
+
+  link.addEventListener('click', (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    verifyThenOpen(job, link, article);
+  });
+
   return el('li', {}, article);
 }
 

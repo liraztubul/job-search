@@ -210,6 +210,18 @@ const POLICIES = {
         ip: { max: 20 },
         account: { max: 5 },
     },
+    // DELETE /api/account is behind a session, not PUBLIC_ROUTES — but a
+    // stolen session cookie alone isn't enough to delete the account (the
+    // route still requires the current password), which makes this endpoint
+    // a password oracle an attacker could hammer the same way a login form
+    // is. Same shape and numbers as login, keyed by the account's own id
+    // rather than a submitted email — there's no email in the request body,
+    // the session already names the account.
+    accountDelete: {
+        windowMs: 15 * 60 * 1000,
+        ip: { max: 20 },
+        account: { max: 5 },
+    },
 };
 
 /** Builds the ip+account counter pair for every policy, sharing one clock. */

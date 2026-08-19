@@ -94,6 +94,8 @@ async function initSessionNav() {
 
   if (!session.authenticated) return; // the default "התחברות" link is correct
 
+  const settings = el('a', { className: 'btn', href: 'settings.html', textContent: 'הגדרות' });
+
   const logout = el('button', {
     type: 'button',
     className: 'btn btn-danger',
@@ -110,7 +112,7 @@ async function initSessionNav() {
     location.replace('index.html');
   });
 
-  slot.replaceChildren(logout);
+  slot.replaceChildren(settings, logout);
 }
 
 function initUI() {
