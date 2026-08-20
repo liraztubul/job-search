@@ -21,7 +21,11 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     region: frankfurt        # closest free region to Israel
-    healthCheckPath: /api/meta
+    # /api/health, not /api/meta. The check must only answer "is this process
+    # alive" — /api/meta runs six queries against a database across the network,
+    # so a slow database would fail the check and get a working container
+    # killed and restarted. See the comment on the route itself.
+    healthCheckPath: /api/health
 
     envVars:
       - key: HOST

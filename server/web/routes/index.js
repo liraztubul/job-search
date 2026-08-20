@@ -53,6 +53,27 @@ function originOf(req) {
 }
 
 const routes = {
+    /**
+     * The host's liveness check, and deliberately the cheapest thing here.
+     *
+     * `/api/meta` used to serve this role, and it is the single most expensive
+     * endpoint in the application: six separate queries, one of which pulls the
+     * location of every job in the database so the city counts can be
+     * aggregated. Against a local file that is instant. Against a hosted
+     * database it is six network round trips on every single check.
+     *
+     * The failure that sets up is subtle and bad. Render decides the service is
+     * dead when this path stops answering promptly — so a database that is
+     * merely *slow* gets the container killed and restarted, which makes it
+     * slower, which fails the next check. A health check that can fail for any
+     * reason other than "the process is gone" turns a performance problem into
+     * an outage.
+     *
+     * So this touches nothing: no database, no filesystem, no network. If the
+     * process is running, it answers. That is the only question being asked.
+     */
+    'GET /api/health': ({ res }) => sendJson(res, 200, { ok: true, uptimeSec: Math.round(process.uptime()) }),
+
     'GET /api/meta': ({ res, userId }) => sendJson(res, 200, jobSearch.filterOptions(userId)),
 
     'GET /api/jobs': ({ res, url, userId }) => sendJson(res, 200, jobSearch.searchJobs(userId, url.searchParams)),
@@ -290,6 +311,8 @@ const PUBLIC_ROUTES = new Set([
     'POST /api/register',
     'POST /api/login',
     'POST /api/logout',
+    // The host checks this without a session, and must never be told to log in.
+    'GET /api/health',
     'GET /api/meta',
     'GET /api/jobs',
     // Reaching all three requires proving you don't have a session (you
