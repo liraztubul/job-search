@@ -377,101 +377,35 @@ function markCardClosed(article, link, job) {
 }
 
 /**
- * The click-to-verify flow: check the ONE job someone is about to open
- * rather than opening a possibly-dead link straight away.
+ * Open immediately, verify in the background.
  *
- * `window.open('', ...)` happens synchronously, inside the trusted click
- * handler, before anything is awaited — that is what keeps it from being
- * blocked as a popup. Everything after that only ever navigates or closes
- * this same already-open tab; no further window.open call is made.
+ * An earlier version tried to check first and only open once an answer came
+ * back (or ~1s passed) — pre-opening a blank tab synchronously inside the
+ * click, then navigating it once the check settled. In practice that traded
+ * one rare problem (opening a dead link) for a worse and more common one:
+ * real browsers disagree about whether a `window.open()`-returned reference
+ * can still be navigated once any time has passed, even inside the same
+ * task — some silently drop it, leaving a tab stuck on about:blank with no
+ * error anywhere, sometimes alongside a same-tab fallback firing too. Every
+ * fix for one browser's behaviour was a new failure mode in another's.
  *
- * The wait is capped at ~1s: never make someone wait on a check that exists
- * to save them a wasted click. If verification is still running when the
- * timer fires, the tab opens anyway — and if the answer arrives late and
- * turns out to be "gone", the card still updates to say so, even though the
- * tab already opened.
+ * `window.open(job.applyUrl, ...)` with a real URL, called synchronously in
+ * the trusted click handler and nothing else, has none of that — it is the
+ * one thing every popup blocker is specifically designed to always allow.
+ * The cost is the one case this used to prevent: clicking a job that closed
+ * since the last scrape opens a real, now-dead link. The check still runs,
+ * just after, purely to fix the card for whoever looks at this list next —
+ * it no longer gates the click at all.
  */
-const VERIFY_TIMEOUT_MS = 1000;
-
-/**
- * Some browsers (Safari reliably, others under strict tracking-protection
- * settings) only trust a `window.open()`-returned reference to be navigated
- * within the same synchronous tick, or the same trusted click — a
- * `tab.location.href =` fired from a promise callback or setTimeout, even
- * one this short, is silently dropped rather than erroring. The visible
- * result is exactly a tab stuck on about:blank forever, with nothing in the
- * console to explain why.
- *
- * Writing a real, same-origin `<a>` into the tab immediately (still
- * synchronous, still inside the click) is a genuine fallback rather than a
- * second attempt at the same trick: a manual click on a real link is always
- * trusted, browser or setting notwithstanding. DOM nodes, not an HTML
- * string — job.title/applyUrl come from a scraped, external, untrusted
- * source, and this document is not the one CSP/the rest of the app protects.
- */
-function writeFallbackTabContent(tab, job) {
-  try {
-    const doc = tab.document;
-    doc.title = job.title;
-    doc.documentElement.lang = 'he';
-    doc.documentElement.dir = 'rtl';
-    const body = doc.body;
-    body.style.font = '1rem system-ui, sans-serif';
-    body.style.padding = '3rem 1.5rem';
-    body.style.textAlign = 'center';
-    body.append(
-      Object.assign(doc.createElement('p'), { textContent: 'פותח את המשרה…' }),
-      Object.assign(doc.createElement('p'), {
-        textContent: 'לחצו כאן אם זה לא נפתח אוטומטית: ',
-      })
-    );
-    const fallbackLink = Object.assign(doc.createElement('a'), { textContent: job.title });
-    fallbackLink.href = job.applyUrl;
-    body.lastElementChild.append(fallbackLink);
-  } catch {
-    /* best-effort only — a same-origin about:blank write should never throw,
-       but if it somehow does, openTab()'s own navigation attempt still runs */
-  }
-}
-
-function verifyThenOpen(job, link, article) {
-  if (link.dataset.verifying === 'true') return;
-  link.dataset.verifying = 'true';
-
-  const tab = window.open('', '_blank', 'noopener,noreferrer');
-  if (tab) writeFallbackTabContent(tab, job);
-  let settled = false;
-
-  const openTab = () => {
-    if (settled) return;
-    settled = true;
-    if (tab) {
-      try { tab.location.href = job.applyUrl; } catch { /* visitor already closed the tab */ }
-    } else {
-      // Popup blocked outright (e.g. a browser setting) — same-tab
-      // navigation is still an answer to the click, not silence.
-      location.href = job.applyUrl;
-    }
-  };
-
-  const fallback = setTimeout(openTab, VERIFY_TIMEOUT_MS);
+function openThenVerify(job, link, article) {
+  window.open(job.applyUrl, '_blank', 'noopener,noreferrer');
 
   fetch(`/api/jobs/${job.id}/verify`, { method: 'POST' })
     .then((r) => r.json())
     .then((result) => {
-      clearTimeout(fallback);
-      if (result.status === 'gone') {
-        if (!settled) { settled = true; tab?.close(); }
-        markCardClosed(article, link, job);
-        return;
-      }
-      openTab();
+      if (result.status === 'gone') markCardClosed(article, link, job);
     })
-    .catch(() => {
-      clearTimeout(fallback);
-      openTab(); // a failed check is not evidence of anything — never block on it
-    })
-    .finally(() => { link.dataset.verifying = 'false'; });
+    .catch(() => { /* a failed check is not evidence of anything */ });
 }
 
 function jobCard(job) {
@@ -546,7 +480,7 @@ function jobCard(job) {
   link.addEventListener('click', (event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    verifyThenOpen(job, link, article);
+    openThenVerify(job, link, article);
   });
 
   return el('li', {}, article);
