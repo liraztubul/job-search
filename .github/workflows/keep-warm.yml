@@ -1,0 +1,73 @@
+# Keeps the site awake during the hours people actually visit it.
+#
+# THE PROBLEM
+#
+# Render's free tier stops the container after 15 minutes without traffic. The
+# next visitor waits about half a minute staring at Render's own black holding
+# page — which cannot be styled or replaced. Someone arriving from a CV link
+# reasonably concludes the site is broken and closes the tab.
+#
+# WHY 07:00–23:00 AND NOT AROUND THE CLOCK
+#
+# The free tier grants 750 instance-hours per month, and a service consumes them
+# only while awake. A 31-day month is 744 hours, so keeping it up continuously
+# would land within six hours of the cap — and **exceeding it suspends every
+# free service until the first of the next month**, taking the site down
+# entirely. Six hours of margin is not margin.
+#
+# Sixteen hours a day is roughly 500 hours: comfortable headroom, and it covers
+# the window in which anyone is realistically clicking a portfolio link. The
+# site still sleeps overnight, which is fine — the first visitor at 07:00 waits,
+# and nobody else does.
+#
+# WHAT THIS DOES NOT FIX
+#
+# GitHub's scheduler is best-effort. Runs are routinely late by five to fifteen
+# minutes and are dropped under load, so against a 15-minute sleep window some
+# pings will arrive too late and the service will nap anyway. This removes most
+# cold starts, not all of them. A dedicated uptime monitor (cron-job.org,
+# UptimeRobot — both free, no card) fires more reliably, because that is its
+# only job; worth switching to if the gaps turn out to matter.
+#
+# Unlimited Actions minutes on a public repository is what makes this free. On a
+# private repo these ~2,900 monthly runs would consume the entire 2,000-minute
+# allowance and starve the scrape workflow, which matters far more.
+
+name: Keep the site warm
+
+on:
+  schedule:
+    # Every 10 minutes, 04:00–20:00 UTC = 07:00–23:00 Israel time (UTC+3 in
+    # summer). Israel's winter offset is UTC+2, so this drifts an hour twice a
+    # year — harmless here, and not worth the complexity of correcting.
+    - cron: '*/10 4-20 * * *'
+
+  workflow_dispatch:
+
+# A ping that piles up behind a previous slow ping helps nobody.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Wake the service
+        run: |
+          # /api/meta, not /robots.txt: Render answers requests for robots.txt
+          # from its edge without ever reaching the container, so pinging it
+          # would look like it was working and wake nothing at all.
+          #
+          # --max-time 90 because a cold start is the case this exists for —
+          # the request that does the waking is the slow one, by definition.
+          #
+          # No `set -e` and no failure on a bad status: this job going red would
+          # send an email that means "the site was asleep and is now awake",
+          # which is not a problem. Real failures show up in the scrape workflow,
+          # and an alert nobody acts on trains you to ignore all of them.
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 \
+            https://jobtrail-0xhs.onrender.com/api/meta || echo "timeout")
+          echo "Response: $code"

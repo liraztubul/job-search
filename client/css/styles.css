@@ -169,15 +169,18 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
 
 /* ------------------------------ location multiselect ------------------------- */
 .multiselect { position:relative; }
-.multiselect > summary {
+/* The <summary> is a grandchild here (.multiselect > details > summary), not
+   a direct child — a bare `>` combinator would never match it, and `[open]`
+   lives on the <details>, not on .multiselect itself. */
+.multiselect details > summary {
   list-style:none; cursor:pointer; display:flex; align-items:center;
   min-height:2.63rem; padding:.5rem .69rem; font:inherit; font-size:.94rem;
   background:var(--surface); color:var(--text); border:1px solid var(--border-strong); border-radius:8px;
 }
-.multiselect > summary::-webkit-details-marker,
-.multiselect > summary::marker { display:none; content:""; }
-.multiselect > summary:hover { border-color:var(--accent); }
-.multiselect[open] > summary { border-color:var(--accent); color:var(--accent); }
+.multiselect details > summary::-webkit-details-marker,
+.multiselect details > summary::marker { display:none; content:""; }
+.multiselect details > summary:hover { border-color:var(--accent); }
+.multiselect details[open] > summary { border-color:var(--accent); color:var(--accent); }
 
 .multiselect-panel {
   position:absolute; top:calc(100% + .25rem); inset-inline:0; z-index:50;
