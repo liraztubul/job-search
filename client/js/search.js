@@ -393,11 +393,53 @@ function markCardClosed(article, link, job) {
  */
 const VERIFY_TIMEOUT_MS = 1000;
 
+/**
+ * Some browsers (Safari reliably, others under strict tracking-protection
+ * settings) only trust a `window.open()`-returned reference to be navigated
+ * within the same synchronous tick, or the same trusted click — a
+ * `tab.location.href =` fired from a promise callback or setTimeout, even
+ * one this short, is silently dropped rather than erroring. The visible
+ * result is exactly a tab stuck on about:blank forever, with nothing in the
+ * console to explain why.
+ *
+ * Writing a real, same-origin `<a>` into the tab immediately (still
+ * synchronous, still inside the click) is a genuine fallback rather than a
+ * second attempt at the same trick: a manual click on a real link is always
+ * trusted, browser or setting notwithstanding. DOM nodes, not an HTML
+ * string — job.title/applyUrl come from a scraped, external, untrusted
+ * source, and this document is not the one CSP/the rest of the app protects.
+ */
+function writeFallbackTabContent(tab, job) {
+  try {
+    const doc = tab.document;
+    doc.title = job.title;
+    doc.documentElement.lang = 'he';
+    doc.documentElement.dir = 'rtl';
+    const body = doc.body;
+    body.style.font = '1rem system-ui, sans-serif';
+    body.style.padding = '3rem 1.5rem';
+    body.style.textAlign = 'center';
+    body.append(
+      Object.assign(doc.createElement('p'), { textContent: 'פותח את המשרה…' }),
+      Object.assign(doc.createElement('p'), {
+        textContent: 'לחצו כאן אם זה לא נפתח אוטומטית: ',
+      })
+    );
+    const fallbackLink = Object.assign(doc.createElement('a'), { textContent: job.title });
+    fallbackLink.href = job.applyUrl;
+    body.lastElementChild.append(fallbackLink);
+  } catch {
+    /* best-effort only — a same-origin about:blank write should never throw,
+       but if it somehow does, openTab()'s own navigation attempt still runs */
+  }
+}
+
 function verifyThenOpen(job, link, article) {
   if (link.dataset.verifying === 'true') return;
   link.dataset.verifying = 'true';
 
   const tab = window.open('', '_blank', 'noopener,noreferrer');
+  if (tab) writeFallbackTabContent(tab, job);
   let settled = false;
 
   const openTab = () => {

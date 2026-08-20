@@ -168,6 +168,25 @@ Guessing at field names is the main way this project wastes an hour.
   closed every role. Never act on an empty result as if it were real.
 - The pages must be opened **through the server**, not by double-clicking the
   HTML file — `file://` has no API to call.
+- **Turso is a network round trip, not a memory access — code that is
+  correct against a local file can still be unusably slow against it.**
+  Four instances of this so far, the first three about correctness
+  (`db.transaction()` throws; named `@parameters` silently don't bind;
+  `LIMIT`/`OFFSET` must be inlined as validated integers, never bound —
+  see `server/data/jobs.js`'s `limitClause`), the fourth about latency: the
+  scheduled scrape's per-job `upsertJobSnapshot`/`closeMissingJobs` calls
+  (one SELECT + one INSERT/UPDATE per job) meant ~2,500 jobs became ~5,000
+  sequential requests to Turso's Ireland region at ~150ms each — 12+ minutes
+  of pure network wait, enough to blow past the workflow's 20-minute
+  timeout on a run that a local file finishes in seconds. Fixed by
+  `upsertJobSnapshots()`/batched `closeMissingJobs()` in `server/data/jobs.js`:
+  one SELECT for the whole company, a handful of multi-row
+  `INSERT ... ON CONFLICT(company_id, external_id) DO UPDATE` batches (sized
+  like `tools/push-to-turso.js` sizes its own, from the column count against
+  SQLite's ~999-parameter cap), one more SELECT to read back new ids. Any
+  future per-row loop over `job_snapshots` (or any other table) is the same
+  bug waiting to happen — batch it before it ships, don't wait for a
+  timeout to find out.
 
 ## Current state
 

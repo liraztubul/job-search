@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
     UNIQUE(company_id, external_id)
 );
 
+-- Redundant with the table-level UNIQUE above on any database created from
+-- this file — but that constraint has existed since the table's first
+-- version, so an already-live database (this project has two: the local
+-- file and Turso) is trusted to already have it, never directly re-verified.
+-- CREATE UNIQUE INDEX IF NOT EXISTS costs nothing when the constraint is
+-- already there and self-heals the one case where it somehow isn't, which
+-- upsertJobSnapshots' batched `ON CONFLICT(company_id, external_id)` (see
+-- data/jobs.js) depends on existing to work at all.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_job_snapshots_company_external
+    ON job_snapshots(company_id, external_id);
+
 -- An account's application pipeline. Absent means untouched. Deliberately
 -- separate from job_snapshots: a scrape rewrites job rows, and someone's own
 -- notes must never be collateral damage.

@@ -88,6 +88,140 @@ function upsertJobSnapshot(companyId, job) {
     return { isNew: true, id: info.lastInsertRowid };
 }
 
+/**
+ * The whole-company version of `upsertJobSnapshot` — what `scrapeService`
+ * actually calls now. Same result per job (`{ isNew, id }`, keyed by
+ * `externalId`), but in O(1) network round trips per company instead of one
+ * SELECT and one INSERT/UPDATE *per job*.
+ *
+ * Against a local file the difference is invisible (a round trip is a memory
+ * access). Against Turso it wasn't: ~2,500 jobs meant ~5,000 sequential
+ * requests to Ireland at ~150ms each, over 12 minutes of pure network wait,
+ * which is what pushed a full cycle past the workflow's 20-minute timeout.
+ * See the comment on the batched statement below for the measured before/after.
+ *
+ * THE APPROACH
+ *
+ * 1. One SELECT for every row this company already has. `isNew` is decided
+ *    from this map in memory — no per-job existence check.
+ * 2. One INSERT ... ON CONFLICT(company_id, external_id) DO UPDATE per batch
+ *    (sized like tools/push-to-turso.js sizes its batches, from the column
+ *    count against SQLite's ~999 bound-parameter cap) — handles inserts and
+ *    updates together, in whatever order the jobs arrived in.
+ * 3. One more SELECT, same shape as step 1, to read back the ids new rows
+ *    were actually assigned.
+ *
+ * Step 3 is a second full-company SELECT rather than a `RETURNING` clause on
+ * the batched statement — RETURNING works fine against a local file (checked
+ * before writing this), but nothing else in this project relies on it against
+ * the remote Hrana protocol, and this is not the file to be the first
+ * experiment: a wrong guess here silently drops new jobs by handing scrapeService
+ * a `{ isNew: true, id: undefined }`, not an error. Two whole-company SELECTs
+ * that reuse the exact query shape used everywhere else in this file is
+ * strictly more round trips than RETURNING would be, but every one of them is
+ * a pattern already proven against Turso.
+ */
+function upsertJobSnapshots(companyId, jobs) {
+    if (jobs.length === 0) return new Map();
+    const now = new Date().toISOString();
+
+    const readIdsByExternalId = () =>
+        new Map(
+            db
+                .prepare('SELECT external_id, id FROM job_snapshots WHERE company_id = ?')
+                .all(companyId)
+                .map((row) => [row.external_id, row.id])
+        );
+
+    const idsBefore = readIdsByExternalId();
+
+    const COLUMNS = [
+        'company_id',
+        'external_id',
+        'title',
+        'location',
+        'location_search',
+        'apply_url',
+        'job_code',
+        'first_seen_at',
+        'last_seen_at',
+        'employment_type',
+        'experience_level',
+        'department',
+        'posted_at',
+    ];
+    // Same derivation as tools/push-to-turso.js: SQLite's bound-parameter cap
+    // is 999 on older builds; sizing the batch from the column count keeps
+    // every statement under it regardless of how many columns this table
+    // gains later, rather than a hardcoded row count that works today and
+    // silently breaks the next time a column is added.
+    const batchSize = Math.max(1, Math.floor(900 / COLUMNS.length));
+    const tuple = `(${COLUMNS.map(() => '?').join(', ')})`;
+
+    for (let i = 0; i < jobs.length; i += batchSize) {
+        const batch = jobs.slice(i, i + batchSize);
+        const sql = `
+            INSERT INTO job_snapshots (${COLUMNS.join(', ')})
+            VALUES ${batch.map(() => tuple).join(', ')}
+            ON CONFLICT(company_id, external_id) DO UPDATE SET
+                last_seen_at = excluded.last_seen_at,
+                title = excluded.title,
+                location = excluded.location,
+                location_search = excluded.location_search,
+                apply_url = excluded.apply_url,
+                job_code = excluded.job_code,
+                employment_type = excluded.employment_type,
+                experience_level = excluded.experience_level,
+                department = excluded.department,
+                posted_at = excluded.posted_at,
+                is_still_open = 1
+        `;
+        // first_seen_at is deliberately absent from DO UPDATE SET — it is
+        // what "new" means (server/domain/jobFreshness.js) and what the
+        // search's default sort orders by. Overwriting it on every re-scrape
+        // would make every job look like it appeared today, permanently.
+        // tests/jobs.test.js proves this survives a re-scrape of an
+        // unchanged job.
+        const params = batch.flatMap((job) => [
+            companyId,
+            job.externalId,
+            job.title,
+            job.location,
+            locationSearchValue(job.location),
+            job.applyUrl,
+            job.jobCode ?? null,
+            now,
+            now,
+            job.employmentType ?? null,
+            job.experienceLevel ?? null,
+            job.department ?? null,
+            sanitizePostedAt(job.postedAt),
+        ]);
+        db.prepare(sql).run(...params);
+    }
+
+    const idsAfter = readIdsByExternalId();
+
+    // Keyed by externalId, so a well-formed adapter (one row per job, unique
+    // externalId — RawJob's actual contract) gets exactly the same isNew/id
+    // per job as the old one-at-a-time version. Two jobs in the same batch
+    // sharing an externalId — which would itself be an adapter bug, not a
+    // normal result — both read isNew from the pre-batch snapshot and so both
+    // come back `true`; the row itself still ends up correct (ON CONFLICT
+    // resolves same-batch duplicates to the last one, proven above), the only
+    // divergence from the old behaviour is scrapeService's `summary.newJobs`
+    // count being off by the duplicate count, and wasNotified() still stops a
+    // real duplicate notification from being recorded twice.
+    const results = new Map();
+    for (const job of jobs) {
+        results.set(job.externalId, {
+            isNew: !idsBefore.has(job.externalId),
+            id: idsAfter.get(job.externalId),
+        });
+    }
+    return results;
+}
+
 // ---------------------------------------------------------------------------
 // Sanity gate + closure detection — see server/services/scrapeService.js and
 // docs/ARCHITECTURE.md §4.2/§4.3. "No jobs" and "the scraper broke" look
@@ -123,8 +257,19 @@ function closeMissingJobs(companyId, seenExternalIds, now = new Date().toISOStri
     const toClose = openRows.filter((row) => !seen.has(row.external_id));
     if (toClose.length === 0) return 0;
 
-    const close = db.prepare('UPDATE job_snapshots SET is_still_open = 0, closed_at = ? WHERE id = ?');
-    for (const row of toClose) close.run(now, row.id);
+    // One UPDATE per batch of ids, not one per row — the same round-trip
+    // problem upsertJobSnapshots solves above, on the closing side. `now` is
+    // one bound parameter, so a batch can carry up to ~899 ids and still stay
+    // under SQLite's ~999-parameter cap.
+    const BATCH_SIZE = 899;
+    for (let i = 0; i < toClose.length; i += BATCH_SIZE) {
+        const batch = toClose.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '?').join(', ');
+        db.prepare(`UPDATE job_snapshots SET is_still_open = 0, closed_at = ? WHERE id IN (${placeholders})`).run(
+            now,
+            ...batch.map((row) => row.id)
+        );
+    }
     return toClose.length;
 }
 
@@ -439,6 +584,7 @@ function filterOptions(userId) {
 
 module.exports = {
     upsertJobSnapshot,
+    upsertJobSnapshots,
     queryJobs,
     countJobs,
     filterOptions,

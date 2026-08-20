@@ -55,10 +55,15 @@ async function runCycle(onEvent = () => {}) {
             continue;
         }
 
-        const seenExternalIds = [];
+        // One SELECT + a handful of batched writes for the whole company,
+        // not two round trips per job — see the comment on
+        // upsertJobSnapshots in data/jobs.js for why that distinction only
+        // matters once the database is on the far side of a network.
+        const seenExternalIds = jobs.map((job) => job.externalId);
+        const results = data.upsertJobSnapshots(company.id, jobs);
+
         for (const job of jobs) {
-            seenExternalIds.push(job.externalId);
-            const { isNew, id } = data.upsertJobSnapshot(company.id, job);
+            const { isNew, id } = results.get(job.externalId);
             if (!isNew) continue;
 
             summary.newJobs++;

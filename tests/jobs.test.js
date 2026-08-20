@@ -9,7 +9,15 @@ const assert = require('node:assert');
 const { db } = require('../server/data/connection');
 const { addCompany, setFirstScrapedAt, setCompanyActive } = require('../server/data/companies');
 const { createUser } = require('../server/data/users');
-const { queryJobs, countJobs, upsertJobSnapshot, countOpenJobs, closeMissingJobs, filterOptions } = require('../server/data/jobs');
+const {
+    queryJobs,
+    countJobs,
+    upsertJobSnapshot,
+    upsertJobSnapshots,
+    countOpenJobs,
+    closeMissingJobs,
+    filterOptions,
+} = require('../server/data/jobs');
 const { GUEST } = require('../server/data/tenancy');
 
 /**
@@ -230,6 +238,113 @@ test('upsertJobSnapshot keeps a real, non-future posted_at, and re-validates it 
         externalId, title: 'Test Job', location: 'Tel Aviv', applyUrl: 'https://example.com', postedAt: 'garbage',
     });
     assert.equal(db.prepare('SELECT posted_at FROM job_snapshots WHERE id = ?').get(id).posted_at, null);
+});
+
+// ---------------------------------------------------------------------------
+// upsertJobSnapshots — the batched, whole-company version scrapeService.js
+// actually calls. Must produce the exact same {isNew, id} per job as calling
+// upsertJobSnapshot once per job would, in one SELECT + a handful of batched
+// writes + one more SELECT, not two round trips per job — see the comment on
+// it in server/data/jobs.js for why that distinction is the whole point.
+// ---------------------------------------------------------------------------
+
+const rawJob = (externalId, overrides = {}) => ({
+    externalId,
+    title: `Job ${externalId}`,
+    location: 'Tel Aviv',
+    applyUrl: 'https://example.com',
+    ...overrides,
+});
+
+test('upsertJobSnapshots inserts every new job and reports isNew:true for each', () => {
+    const companyId = addCompany({ name: `Batch New Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const jobs = [rawJob('a'), rawJob('b'), rawJob('c')];
+
+    const results = upsertJobSnapshots(companyId, jobs);
+
+    assert.equal(results.size, 3);
+    for (const job of jobs) {
+        const result = results.get(job.externalId);
+        assert.equal(result.isNew, true, job.externalId);
+        assert.ok(Number.isInteger(result.id), job.externalId);
+    }
+    assert.equal(countOpenJobs(companyId), 3);
+});
+
+test('upsertJobSnapshots reports isNew:false and keeps the same id for an already-seen job', () => {
+    const companyId = addCompany({ name: `Batch Existing Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const { id: firstId } = upsertJobSnapshot(companyId, rawJob('x', { title: 'Old Title' }));
+
+    const results = upsertJobSnapshots(companyId, [rawJob('x', { title: 'New Title' })]);
+
+    const result = results.get('x');
+    assert.equal(result.isNew, false);
+    assert.equal(result.id, firstId);
+    assert.equal(db.prepare('SELECT title FROM job_snapshots WHERE id = ?').get(firstId).title, 'New Title');
+});
+
+test('upsertJobSnapshots handles a mix of new and existing jobs in one call correctly', () => {
+    const companyId = addCompany({ name: `Batch Mix Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const { id: existingId } = upsertJobSnapshot(companyId, rawJob('already-here'));
+
+    const results = upsertJobSnapshots(companyId, [rawJob('already-here'), rawJob('brand-new')]);
+
+    assert.deepEqual(results.get('already-here'), { isNew: false, id: existingId });
+    assert.equal(results.get('brand-new').isNew, true);
+    assert.notEqual(results.get('brand-new').id, existingId);
+});
+
+test('upsertJobSnapshots never overwrites first_seen_at on a re-scrape of an unchanged job — this is the regression the batching most easily introduces', async () => {
+    const companyId = addCompany({ name: `Batch FirstSeen Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const { id } = upsertJobSnapshot(companyId, rawJob('stable', { title: 'Original' }));
+    const originalFirstSeenAt = db.prepare('SELECT first_seen_at, last_seen_at FROM job_snapshots WHERE id = ?').get(id).first_seen_at;
+
+    // A real (if tiny) gap, so last_seen_at moving forward is a genuine
+    // second timestamp rather than two calls that happen to land on the same
+    // millisecond — proof this is a live UPDATE, not a no-op.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    upsertJobSnapshots(companyId, [rawJob('stable', { title: 'Refreshed on re-scrape' })]);
+
+    const row = db.prepare('SELECT first_seen_at, last_seen_at, title FROM job_snapshots WHERE id = ?').get(id);
+    assert.equal(row.first_seen_at, originalFirstSeenAt, 'first_seen_at must survive a re-scrape unchanged');
+    assert.equal(row.title, 'Refreshed on re-scrape', 'sanity check: the batched UPDATE path did run, not a silent no-op');
+    assert.ok(row.last_seen_at >= originalFirstSeenAt, 'last_seen_at should have moved forward');
+});
+
+test('upsertJobSnapshots reopens a previously-closed job that reappears in a scrape', () => {
+    const companyId = addCompany({ name: `Batch Reopen Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const { id } = upsertJobSnapshot(companyId, rawJob('flaky'));
+    closeMissingJobs(companyId, []); // closes it
+    assert.equal(db.prepare('SELECT is_still_open FROM job_snapshots WHERE id = ?').get(id).is_still_open, 0);
+
+    upsertJobSnapshots(companyId, [rawJob('flaky')]);
+
+    assert.equal(db.prepare('SELECT is_still_open FROM job_snapshots WHERE id = ?').get(id).is_still_open, 1);
+});
+
+test('upsertJobSnapshots handles more jobs than fit in one batch statement', () => {
+    const companyId = addCompany({ name: `Batch Large Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    // Comfortably more than one batch (13 columns -> 69 rows/batch) without
+    // being slow to run as a test.
+    const jobs = Array.from({ length: 150 }, (_, i) => rawJob(`job-${i}`));
+
+    const results = upsertJobSnapshots(companyId, jobs);
+
+    assert.equal(results.size, 150);
+    assert.equal(countOpenJobs(companyId), 150);
+    assert.ok([...results.values()].every((r) => r.isNew && Number.isInteger(r.id)));
+
+    // Re-run unchanged: every one must now read isNew:false, still across
+    // multiple batches, proving the "before" snapshot isn't stale mid-run.
+    const secondPass = upsertJobSnapshots(companyId, jobs);
+    assert.ok([...secondPass.values()].every((r) => r.isNew === false));
+});
+
+test('upsertJobSnapshots on an empty job list is a no-op, not an error', () => {
+    const companyId = addCompany({ name: `Batch Empty Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const results = upsertJobSnapshots(companyId, []);
+    assert.equal(results.size, 0);
+    assert.equal(countOpenJobs(companyId), 0);
 });
 
 // ---------------------------------------------------------------------------
