@@ -67,8 +67,25 @@ function adoptLegacyDatabaseFile() {
  * file on the same disk. Production sets the two variables and the same code
  * reaches a database that outlives the container.
  */
+/**
+ * These values are pasted into dashboard fields by hand — Render's, GitHub's —
+ * and both store exactly what was pasted, including a trailing newline picked
+ * up by a copy that caught the end of a line, or quotes copied along with the
+ * value.
+ *
+ * The failure that produces is `Hrana(Http("InvalidUri(InvalidUriChar)"))`,
+ * which names neither the variable nor the character and sends you looking at
+ * the network. Trimming costs nothing and removes the entire failure mode;
+ * stripping matching quotes covers the other common paste.
+ */
+function readSecret(name) {
+    const raw = process.env[name];
+    if (raw == null) return undefined;
+    return raw.trim().replace(/^["']|["']$/g, '');
+}
+
 function openDatabase() {
-    const url = process.env.TURSO_DATABASE_URL;
+    const url = readSecret('TURSO_DATABASE_URL');
     if (!url) {
         adoptLegacyDatabaseFile();
         return new Database(dbPath);
@@ -76,12 +93,24 @@ function openDatabase() {
 
     // A URL with no token is a misconfiguration that fails later, at the first
     // query, as an opaque auth error. Better to say so at startup.
-    if (!process.env.TURSO_AUTH_TOKEN) {
+    const authToken = readSecret('TURSO_AUTH_TOKEN');
+    if (!authToken) {
         throw new Error('TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is not — the connection would be rejected.');
     }
 
-    console.log(`Using hosted database at ${url.replace(/\/\/.*@/, '//')}`);
-    return new Database(url, { authToken: process.env.TURSO_AUTH_TOKEN });
+    // Checked here rather than left to the driver, because the driver's own
+    // complaint about a malformed URL does not say which value was malformed,
+    // and the value is masked in CI logs — so there is nothing to eyeball.
+    if (!/^libsql:\/\/[\w.-]+$/.test(url)) {
+        throw new Error(
+            `TURSO_DATABASE_URL is not a valid libSQL URL (got ${url.length} characters). ` +
+                'It should look exactly like libsql://your-db-name.region.turso.io — no https://, ' +
+                'no quotes, no trailing slash, and no whitespace or newline at either end.'
+        );
+    }
+
+    console.log(`Using hosted database at ${url}`);
+    return new Database(url, { authToken });
 }
 
 const db = openDatabase();
