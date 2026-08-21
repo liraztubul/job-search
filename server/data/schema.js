@@ -54,8 +54,18 @@ const MIGRATIONS = {
         ['session_epoch', 'INTEGER NOT NULL DEFAULT 0'],
         ['email_verified_at', 'TEXT'],
     ],
-    // The "new company" trap: see server/domain/jobFreshness.js.
-    watched_companies: [['first_scraped_at', 'TEXT']],
+    // The "new company" trap: see server/domain/jobFreshness.js. The
+    // known_issue_*/refusal_streak/last_refused_count columns are for a
+    // scrape run to mean something again — see the comment on this table in
+    // schema.sql and server/domain/scrapeOutcome.js.
+    watched_companies: [
+        ['first_scraped_at', 'TEXT'],
+        ['known_issue_kind', 'TEXT'],
+        ['known_issue_reason', 'TEXT'],
+        ['known_issue_at', 'TEXT'],
+        ['refusal_streak', 'INTEGER NOT NULL DEFAULT 0'],
+        ['last_refused_count', 'INTEGER'],
+    ],
 };
 
 /** Adds a column only when it is absent, so running it repeatedly is harmless. */

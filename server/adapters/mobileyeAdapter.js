@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Mobileye runs a Nuxt site that renders every open position server-side at
@@ -80,7 +81,7 @@ class MobileyeAdapter extends JobSource {
     async getCurrentJobs() {
         const res = await fetch(LIST_URL, { headers: HTML_HEADERS });
         if (!res.ok) {
-            throw new Error(`Mobileye fetch failed: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(`Mobileye fetch failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
 
         const html = await res.text();

@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Workday's candidate experience site (CXS) — the recruiting platform behind
@@ -156,7 +157,7 @@ class WorkdayAdapter extends JobSource {
             body: JSON.stringify(body),
         });
         if (!res.ok) {
-            throw new Error(`Workday search failed for ${this.host}: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(`Workday search failed for ${this.host}: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
         return res.json();
     }
@@ -172,10 +173,11 @@ class WorkdayAdapter extends JobSource {
         const resolved = resolveLocationFacet(data.facets, this.country);
 
         if (!resolved) {
-            throw new Error(
+            throw new ScrapeError(
                 `Workday: no location on ${this.host} matches country "${this.country}" (checked a top-level ` +
                     `Country facet and the nested locations one). Check the spelling against the tenant's own ` +
-                    `facet list, or re-run: node tools/probe.js "${this.jobsUrl}"`
+                    `facet list, or re-run: node tools/probe.js "${this.jobsUrl}"`,
+                FAILURE_KIND.EMPTY
             );
         }
         return resolved;

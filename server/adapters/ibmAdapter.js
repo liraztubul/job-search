@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities } = require('./htmlUtils');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * IBM's careers site (careers.ibm.com, searched from www.ibm.com/careers/search)
@@ -90,7 +91,7 @@ class IbmAdapter extends JobSource {
             body: JSON.stringify(this.buildBody(from)),
         });
         if (!res.ok) {
-            throw new Error(`IBM search failed: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(`IBM search failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
 
         const data = await res.json();

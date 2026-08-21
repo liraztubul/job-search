@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Eightfold AI — the recruiting platform behind NVIDIA's careers site.
@@ -91,7 +92,10 @@ class EightfoldAdapter extends JobSource {
     async fetchPage(start) {
         const res = await fetch(this.buildUrl(start), { headers: HTML_HEADERS });
         if (!res.ok) {
-            throw new Error(`Eightfold fetch failed for ${this.host}: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(
+                `Eightfold fetch failed for ${this.host}: ${res.status} ${res.statusText}`,
+                classifyHttpStatus(res.status)
+            );
         }
 
         const body = await res.json();
@@ -144,10 +148,11 @@ class EightfoldAdapter extends JobSource {
         }
 
         if (jobs.length === 0) {
-            throw new Error(
+            throw new ScrapeError(
                 `Eightfold returned ${total} positions for ${this.host} but none matched ` +
                     `location "${this.location}". Check the location text, or re-run: ` +
-                    'node tools/sniff.js nvidia'
+                    'node tools/sniff.js nvidia',
+                FAILURE_KIND.EMPTY
             );
         }
 

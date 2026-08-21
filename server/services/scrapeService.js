@@ -13,6 +13,24 @@ const data = require('../data');
 const { matches } = require('../domain/matcher');
 const { buildAdapter } = require('../adapters');
 const { evaluateSanityGate } = require('../domain/scrapeSanity');
+const { FAILURE_KIND, classifyFailure, shouldGoRed } = require('../domain/scrapeOutcome');
+
+// Three refusals in a row is nine hours (the scrape runs every 3h) of a
+// company's data frozen at a number nobody has confirmed is real. See the
+// comment on watched_companies.refusal_streak in schema.sql: either the drop
+// is real (and evaluateSanityGate's own memory should have accepted it by
+// now — see scrapeSanity.js) or something is actually wrong, and both need a
+// human, which is what turning this into a `broken` failure gets.
+const REFUSAL_ESCALATION_THRESHOLD = 3;
+
+/** Records one failed company: pushes to summary.failures and fires onEvent — the one
+ * place that decides `loud`/`acknowledged` from this company's known_issue_kind, so the
+ * two call sites below (an adapter throwing, the sanity gate refusing) can't drift apart. */
+function recordFailure(summary, onEvent, company, kind, error, extra = {}) {
+    const loud = shouldGoRed(kind, company.known_issue_kind);
+    summary.failures.push({ company: company.name, error, kind, loud, acknowledged: kind === company.known_issue_kind, ...extra });
+    onEvent({ type: 'company:failed', company: company.name, error, kind });
+}
 
 /**
  * @param {(event: object) => void} [onEvent] progress callback
@@ -32,9 +50,11 @@ async function runCycle(onEvent = () => {}) {
             jobs = await buildAdapter(company).getCurrentJobs();
         } catch (err) {
             // One broken company must never stop the others. See ARCHITECTURE.md
-            // §4.3 — blast radius of a site change is one adapter.
-            summary.failures.push({ company: company.name, error: err.message });
-            onEvent({ type: 'company:failed', company: company.name, error: err.message });
+            // §4.3 — blast radius of a site change is one adapter. `classifyFailure`
+            // trusts a kind the adapter set at the exact point it understood the
+            // failure (server/domain/scrapeOutcome.js) and defaults to `broken` for
+            // a plain, unclassified Error — which is the correct default, not a gap.
+            recordFailure(summary, onEvent, company, classifyFailure(err), err.message);
             continue;
         }
 
@@ -45,15 +65,26 @@ async function runCycle(onEvent = () => {}) {
         // identical in the data. Existing rows are left untouched when the
         // gate refuses a result, and — critically — closure detection below
         // never runs, so a broken adapter can never mass-close a company's
-        // listings.
+        // listings. `company.last_refused_count` is what makes the gate's
+        // memory work: null unless the PREVIOUS cycle also refused this
+        // company, in which case a closely-matching count here means the
+        // drop is real, not a fluke — see evaluateSanityGate.
         const openBefore = data.countOpenJobs(company.id);
-        const verdict = evaluateSanityGate(openBefore, jobs.length);
+        const verdict = evaluateSanityGate(openBefore, jobs.length, company.last_refused_count);
         if (!verdict.trusted) {
-            const reason = `sanity gate: ${verdict.reason}`;
-            summary.failures.push({ company: company.name, error: reason });
-            onEvent({ type: 'company:failed', company: company.name, error: reason });
+            const streak = data.recordRefusal(company.id, jobs.length);
+            const escalated = streak >= REFUSAL_ESCALATION_THRESHOLD;
+            const kind = escalated ? FAILURE_KIND.BROKEN : FAILURE_KIND.REFUSED;
+            const reason = escalated
+                ? `sanity gate: ${verdict.reason} (refused ${streak} times in a row — treating as broken, not just held back)`
+                : `sanity gate: ${verdict.reason}`;
+            recordFailure(summary, onEvent, company, kind, reason, { refusalStreak: streak });
             continue;
         }
+        // Trusted — either normally, or because the gate's memory just accepted a
+        // repeating drop. Either way any past streak is over; a future refusal
+        // starts counting from zero rather than inheriting this one.
+        if (company.refusal_streak > 0) data.resetRefusalStreak(company.id);
 
         // One SELECT + a handful of batched writes for the whole company,
         // not two round trips per job — see the comment on

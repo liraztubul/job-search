@@ -455,3 +455,45 @@ considered done, not just a one-off probe: KLA and SanDisk both scraped
 clean, Amdocs failed exactly as expected (zero-match throw), and Rafael's
 three manual jobs and the newly-deactivated IBM were both unaffected by the
 same run.
+
+**A scrape failure now has a `kind`, and a red run means something again
+(2026-08-21).** `main.js` used to exit non-zero for every single failure
+alike — a company with genuinely zero Israel jobs (Snyk, Broadcom,
+Syneron-Candela — all already documented above as real, not broken), the
+sanity gate correctly refusing a suspicious drop, and an actual adapter
+break all looked identical in the email GitHub sent eight times a day, which
+is exactly how a real break would eventually hide in the noise. Each
+adapter's `if (!res.ok)` throw and each deliberate "ran fine, zero matched"
+throw now carries a `kind` (`server/domain/scrapeOutcome.js`'s `ScrapeError`
+— `broken` | `blocked` | `empty` | `refused`), set at the exact call site
+that understood the failure, never guessed later from the message text. Only
+`broken` and `blocked` turn a run red by default.
+
+Two things stop that from becoming permanent noise of its own kind:
+- **`watched_companies.known_issue_kind`** (+ `_reason`, `_at`) — a human's
+  deliberate acknowledgment via `tools/acknowledge-issue.js`, mutes exactly
+  that kind for that company. Check Point (blocked since 2026-08-06 — see
+  above) is acknowledged this way; a *different* kind of failure from Check
+  Point still goes red.
+- **The sanity gate now has memory** (`evaluateSanityGate`'s 3rd param,
+  `watched_companies.refusal_streak`/`last_refused_count`): a drop that
+  reproduces within 10% on the very next cycle is accepted as a real,
+  lasting reduction rather than refused forever; three consecutive
+  *non-matching* refusals (nine hours of an unconfirmed number) escalate to
+  `broken` so a person is actually told.
+
+**Palo Alto Networks Israel's drop was real, confirmed live the same day it
+was investigated.** It had been refusing at ~147 (down from a stale 318)
+for at least one prior cycle. The very next local `node server/main.js` run
+returned a closely-matching count, the gate accepted it, and `closeMissingJobs`
+finally ran for real: **149 jobs are now open; roughly 169 of the 318 the
+site had been showing did not actually exist any more.** Confirmed by
+querying `watched_companies`/`job_snapshots` directly after the run
+(`refusal_streak` back to 0, `last_refused_count` NULL, 149 open rows) — not
+inferred from the log alone.
+
+Also caught live, unprompted, by the new classification while verifying all
+of this: **Microsoft Israel got rate-limited mid-run** (Eightfold, 429) and
+was correctly reported as `blocked, NOT acknowledged`, turning that one run
+red on its own — proof the system flags a real, previously-unseen failure
+the same way it now stays quiet about the already-understood ones.

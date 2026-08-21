@@ -1,5 +1,6 @@
 const { JobSource } = require('./JobSource');
 const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Ashby's public job board API — the recruiting platform behind monday.com's
@@ -66,7 +67,10 @@ class AshbyAdapter extends JobSource {
     async getCurrentJobs() {
         const res = await fetch(this.boardUrl);
         if (!res.ok) {
-            throw new Error(`Ashby fetch failed for board "${this.boardName}": ${res.status} ${res.statusText}`);
+            throw new ScrapeError(
+                `Ashby fetch failed for board "${this.boardName}": ${res.status} ${res.statusText}`,
+                classifyHttpStatus(res.status)
+            );
         }
 
         const data = await res.json();
@@ -77,9 +81,10 @@ class AshbyAdapter extends JobSource {
         const jobs = data.jobs.map(mapAshbyJob).filter((job) => this.matchesCountry(job));
 
         if (jobs.length === 0 && this.country) {
-            throw new Error(
+            throw new ScrapeError(
                 `Ashby returned ${data.jobs.length} jobs for board "${this.boardName}" but none matched country ` +
-                    `"${this.country}". Check the spelling, or re-run: node tools/probe.js "${this.boardUrl}"`
+                    `"${this.country}". Check the spelling, or re-run: node tools/probe.js "${this.boardUrl}"`,
+                FAILURE_KIND.EMPTY
             );
         }
 

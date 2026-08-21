@@ -55,7 +55,26 @@ CREATE TABLE IF NOT EXISTS watched_companies (
     -- is at or before this is part of the initial bulk load: we have no idea
     -- how old it actually is, so it must never be shown as "new". See
     -- server/domain/jobFreshness.js.
-    first_scraped_at TEXT
+    first_scraped_at TEXT,
+    -- A human's deliberate acknowledgment of a standing failure kind for this
+    -- company (see server/domain/scrapeOutcome.js's FAILURE_KIND) — set via
+    -- tools/acknowledge-issue.js, never by hand-editing this row. A failure
+    -- whose kind matches known_issue_kind still prints every cycle but does
+    -- not turn the run red; a failure of any OTHER kind still does, so
+    -- acknowledging "this company blocks us" can never silence "this company
+    -- now returns garbage" too.
+    known_issue_kind TEXT,
+    known_issue_reason TEXT,
+    known_issue_at TEXT,
+    -- How many scrape cycles in a row the sanity gate has refused this
+    -- company's result, and what count it refused last time — see
+    -- scrapeSanity.js's "confirmed drop" memory (two consecutive closely-
+    -- matching low counts are accepted as reality) and scrapeService.js's
+    -- escalation (three refusals in a row is reported as broken, not
+    -- refused, so it goes red instead of staying quiet forever). Reset to
+    -- 0/NULL the moment a cycle is trusted again, by either path.
+    refusal_streak INTEGER NOT NULL DEFAULT 0,
+    last_refused_count INTEGER
 );
 
 -- Every job we've ever seen, per company, per scrape cycle

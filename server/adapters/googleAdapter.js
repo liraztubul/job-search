@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Google renders its careers results server-side, 20 jobs per page.
@@ -92,7 +93,10 @@ class GoogleAdapter extends JobSource {
         for (let page = 1; page <= MAX_PAGES; page++) {
             const res = await fetch(this.buildUrl(page), { headers: HTML_HEADERS });
             if (!res.ok) {
-                throw new Error(`Google fetch failed on page ${page}: ${res.status} ${res.statusText}`);
+                throw new ScrapeError(
+                    `Google fetch failed on page ${page}: ${res.status} ${res.statusText}`,
+                    classifyHttpStatus(res.status)
+                );
             }
 
             const html = await res.text();

@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Oracle Recruiting Cloud (the "Candidate Experience" site under
@@ -81,7 +82,10 @@ class OracleHcmAdapter extends JobSource {
     async fetchPage(offset) {
         const res = await fetch(this.buildUrl(offset), { headers: HTML_HEADERS });
         if (!res.ok) {
-            throw new Error(`Oracle HCM fetch failed for ${this.host}: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(
+                `Oracle HCM fetch failed for ${this.host}: ${res.status} ${res.statusText}`,
+                classifyHttpStatus(res.status)
+            );
         }
 
         const body = await res.json();
@@ -122,9 +126,10 @@ class OracleHcmAdapter extends JobSource {
         }
 
         if (jobs.length === 0 && this.country) {
-            throw new Error(
+            throw new ScrapeError(
                 `Oracle HCM returned ${total} requisitions for ${this.host} but none matched country ` +
-                    `"${this.country}". Check the country code, or re-run: node tools/probe.js "${this.buildUrl(0)}"`
+                    `"${this.country}". Check the country code, or re-run: node tools/probe.js "${this.buildUrl(0)}"`,
+                FAILURE_KIND.EMPTY
             );
         }
 

@@ -1,5 +1,6 @@
 const { JobSource } = require('./JobSource');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Amazon (including AWS and Annapurna Labs) exposes the same JSON endpoint its
@@ -112,7 +113,7 @@ class AmazonAdapter extends JobSource {
     async fetchPage(offset) {
         const res = await fetch(this.buildUrl(offset), { headers: HEADERS });
         if (!res.ok) {
-            throw new Error(`Amazon fetch failed: ${res.status} ${res.statusText}`);
+            throw new ScrapeError(`Amazon fetch failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
 
         const data = await res.json();

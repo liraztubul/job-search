@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * Comeet's public per-company positions API. Verified against Lumenis on
@@ -47,7 +48,10 @@ class ComeetAdapter extends JobSource {
     async getCurrentJobs() {
         const res = await fetch(this.positionsUrl);
         if (!res.ok) {
-            throw new Error(`Comeet fetch failed for company "${this.companyUid}": ${res.status} ${res.statusText}`);
+            throw new ScrapeError(
+                `Comeet fetch failed for company "${this.companyUid}": ${res.status} ${res.statusText}`,
+                classifyHttpStatus(res.status)
+            );
         }
         const data = await res.json();
         if (!Array.isArray(data)) {
@@ -57,9 +61,10 @@ class ComeetAdapter extends JobSource {
         const jobs = data.filter((pos) => this.matchesLocation(pos.location)).map((pos) => mapComeetJob(pos));
 
         if (jobs.length === 0) {
-            throw new Error(
+            throw new ScrapeError(
                 `Comeet returned ${data.length} jobs for company "${this.companyUid}" but none matched the location ` +
-                    `filter. Check the spelling, or re-run: node tools/probe.js "${this.positionsUrl}"`
+                    `filter. Check the spelling, or re-run: node tools/probe.js "${this.positionsUrl}"`,
+                FAILURE_KIND.EMPTY
             );
         }
 

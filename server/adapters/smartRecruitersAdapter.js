@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
 
 /**
  * SmartRecruiters' public job postings API — public, unauthenticated, meant
@@ -71,7 +72,10 @@ class SmartRecruitersAdapter extends JobSource {
     async getCurrentJobs() {
         const res = await fetch(this.postingsUrl);
         if (!res.ok) {
-            throw new Error(`SmartRecruiters fetch failed for company "${this.companyIdentifier}": ${res.status} ${res.statusText}`);
+            throw new ScrapeError(
+                `SmartRecruiters fetch failed for company "${this.companyIdentifier}": ${res.status} ${res.statusText}`,
+                classifyHttpStatus(res.status)
+            );
         }
 
         const data = await res.json();
@@ -84,9 +88,10 @@ class SmartRecruitersAdapter extends JobSource {
             .map((raw) => mapSmartRecruitersJob(raw, this.companyIdentifier));
 
         if (jobs.length === 0) {
-            throw new Error(
+            throw new ScrapeError(
                 `SmartRecruiters returned ${data.content.length} jobs for company "${this.companyIdentifier}" but none ` +
-                    `matched the location filter. Check the spelling, or re-run: node tools/probe.js "${this.postingsUrl}"`
+                    `matched the location filter. Check the spelling, or re-run: node tools/probe.js "${this.postingsUrl}"`,
+                FAILURE_KIND.EMPTY
             );
         }
 
