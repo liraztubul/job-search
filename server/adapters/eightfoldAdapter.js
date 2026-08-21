@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Eightfold AI — the recruiting platform behind NVIDIA's careers site.
@@ -98,7 +98,7 @@ class EightfoldAdapter extends JobSource {
             );
         }
 
-        const body = await res.json();
+        const body = await parseJsonResponse(res, 'Eightfold');
         const data = body?.data;
         if (!data || !Array.isArray(data.positions)) {
             throw new Error(

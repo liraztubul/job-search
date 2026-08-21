@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * WordPress sites that publish jobs as a custom post type with a taxonomy for
@@ -58,7 +58,7 @@ class WpCareersAdapter extends JobSource {
             );
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'WordPress careers');
         if (!Array.isArray(data)) {
             throw new Error(`WordPress careers response shape changed for ${this.host}: expected an array, got ${typeof data}`);
         }

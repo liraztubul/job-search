@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities } = require('./htmlUtils');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * IBM's careers site (careers.ibm.com, searched from www.ibm.com/careers/search)
@@ -94,7 +94,7 @@ class IbmAdapter extends JobSource {
             throw new ScrapeError(`IBM search failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'IBM');
         if (!Array.isArray(data?.hits?.hits)) {
             throw new Error(
                 `IBM search response shape changed: expected hits.hits to be an array, got ${typeof data?.hits?.hits}`

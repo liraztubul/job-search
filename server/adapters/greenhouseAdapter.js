@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Greenhouse's public job board API — one of the most common third-party
@@ -82,7 +82,7 @@ class GreenhouseAdapter extends JobSource {
             );
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'Greenhouse');
         if (!Array.isArray(data.jobs)) {
             throw new Error(`Greenhouse response shape changed for board "${this.boardToken}": expected jobs to be an array`);
         }

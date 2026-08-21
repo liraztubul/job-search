@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Oracle Recruiting Cloud (the "Candidate Experience" site under
@@ -88,7 +88,7 @@ class OracleHcmAdapter extends JobSource {
             );
         }
 
-        const body = await res.json();
+        const body = await parseJsonResponse(res, 'Oracle HCM');
         const item = body?.items?.[0];
         if (!item || !Array.isArray(item.requisitionList)) {
             throw new Error(

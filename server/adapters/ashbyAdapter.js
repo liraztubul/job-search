@@ -1,6 +1,6 @@
 const { JobSource } = require('./JobSource');
 const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Ashby's public job board API — the recruiting platform behind monday.com's
@@ -73,7 +73,7 @@ class AshbyAdapter extends JobSource {
             );
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'Ashby');
         if (!Array.isArray(data.jobs)) {
             throw new Error(`Ashby response shape changed for board "${this.boardName}": expected jobs to be an array`);
         }

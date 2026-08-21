@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Comeet's public per-company positions API. Verified against Lumenis on
@@ -53,7 +53,7 @@ class ComeetAdapter extends JobSource {
                 classifyHttpStatus(res.status)
             );
         }
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'Comeet');
         if (!Array.isArray(data)) {
             throw new Error(`Comeet response shape changed for company "${this.companyUid}": expected an array, got ${typeof data}`);
         }

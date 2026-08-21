@@ -1,6 +1,6 @@
 const { JobSource } = require('./JobSource');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Amazon (including AWS and Annapurna Labs) exposes the same JSON endpoint its
@@ -116,7 +116,7 @@ class AmazonAdapter extends JobSource {
             throw new ScrapeError(`Amazon fetch failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'Amazon');
         // A shape change must be loud. Silently returning [] here is exactly how
         // the diff would conclude "every job closed". See ARCHITECTURE.md §4.2.
         if (!Array.isArray(data.jobs)) {

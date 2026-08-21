@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * SmartRecruiters' public job postings API — public, unauthenticated, meant
@@ -78,7 +78,7 @@ class SmartRecruitersAdapter extends JobSource {
             );
         }
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res, 'SmartRecruiters');
         if (!Array.isArray(data.content)) {
             throw new Error(`SmartRecruiters response shape changed for company "${this.companyIdentifier}": expected content to be an array`);
         }
