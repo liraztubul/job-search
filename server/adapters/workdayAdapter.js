@@ -1,7 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
-const { ScrapeError, FAILURE_KIND, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
 
 /**
  * Workday's candidate experience site (CXS) — the recruiting platform behind
@@ -159,7 +159,12 @@ class WorkdayAdapter extends JobSource {
         if (!res.ok) {
             throw new ScrapeError(`Workday search failed for ${this.host}: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }
-        return res.json();
+        // parseJsonResponse, not res.json(): a 200 carrying an HTML challenge
+        // page is how Workday's edge refuses a datacenter address, and raw
+        // JSON.parse reports that as "Unexpected token '<'" — a breakage, when
+        // it is a block. Every Workday tenant shares that edge, so one refusal
+        // reads as eight companies breaking at once.
+        return parseJsonResponse(res, `Workday (${this.host})`);
     }
 
     /**
