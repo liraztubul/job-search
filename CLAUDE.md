@@ -159,6 +159,27 @@ Guessing at field names is the main way this project wastes an hour.
 
 ## Gotchas
 
+- **A block arrives in three shapes, and the third one impersonates a bug.**
+  `403`, `429`, and — the one that cost an evening — **`200` carrying an HTML
+  challenge page**. The third reaches `.json()` as `Unexpected token '<'`,
+  which reads as "this adapter is broken" when the truth is "this site refused
+  us". Every adapter parses through `parseJsonResponse` in
+  `server/domain/scrapeOutcome.js` for exactly that reason; never call
+  `res.json()` directly. Eightfold (Microsoft, NVIDIA), Check Point, Keter's
+  WordPress and Workday all refuse datacenter addresses while serving the same
+  endpoint happily from a home connection — so a failure that reproduces in CI
+  and not locally is a signal about *where the request came from*, not about
+  the code. Acknowledge those with `tools/acknowledge-issue.js`; do not
+  "fix" them.
+- **Failures cluster by platform, not by company.** One Workday refusal looked
+  like seven companies breaking simultaneously. Count adapters, not companies,
+  when judging how bad a run is.
+- **"Re-run" in GitHub Actions replays the original commit.** That is the
+  point of it — an exact reproduction — but it means a re-run after a fix
+  tests the code you just replaced, shows the identical failure, and reads as
+  "the fix didn't work". Three rounds were lost to this. After pushing a fix,
+  always **Run workflow**, and check the commit SHA on the run page matches
+  what you pushed.
 - `libsql` is **synchronous**. Don't `await` db calls.
 - It's also a **native module** — `node_modules` is not portable between
   Windows and Linux. Install on the machine that runs it.

@@ -20,3 +20,18 @@ tools/output/
 # workflow (which checks out from git) could never see the file and failed on
 # every single run. The line that actually belongs here draws the real
 # boundary: personal vs. public, not data vs. code.
+
+# Prompts and briefings written for an assistant, not for a reader of this
+# repository. Kept on disk — several describe work that is not done yet — but
+# a work order addressed to a machine is not documentation, and the interview
+# notes are private. Anything here still worth publishing belongs in
+# docs/ROADMAP.md, written for a person.
+*-PROMPT.md
+PROJECT-BRIEF.md
+
+# Private interview preparation. Matched on the word rather than one filename,
+# because the first version of this rule named a file that had already been
+# renamed — and a rule that silently stops matching is worse than no rule when
+# what it protects is meant to stay unpublished.
+*Interview-Guide*
+*INTERVIEW-GUIDE*
