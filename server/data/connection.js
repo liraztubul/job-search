@@ -86,6 +86,39 @@ function readSecret(name) {
 
 function openDatabase() {
     const url = readSecret('TURSO_DATABASE_URL');
+
+    /**
+     * JT_DB_PATH WINS. This order is not cosmetic — it is the fix for a real
+     * incident.
+     *
+     * Turso's credentials are ambient: they get exported into a shell to run
+     * one tool and then stay there for the rest of the session. `JT_DB_PATH`
+     * is the opposite — a test file sets it deliberately, for that one
+     * process, on its very first line.
+     *
+     * When this function checked Turso first, every test file's careful
+     * `JT_DB_PATH=':memory:'` was silently ignored in any shell that still had
+     * the deploy variables exported, and `npm test` wrote its fixtures
+     * straight into the production database. That happened: rows named
+     * "Acknowledged Blocked 0.3533337459858453" appeared in the live company
+     * picker, and the tests were blameless — they had done exactly what the
+     * documentation told them to.
+     *
+     * The general rule the incident teaches: **the more specific, more
+     * deliberate setting must beat the ambient one.** An explicit per-process
+     * path is a statement about this run; an exported credential is leftover
+     * context.
+     */
+    if (process.env.JT_DB_PATH) {
+        if (url) {
+            console.log(
+                `JT_DB_PATH is set (${process.env.JT_DB_PATH}) — using it and ignoring TURSO_DATABASE_URL. ` +
+                    'An explicitly chosen database always beats credentials left over in the environment.'
+            );
+        }
+        return new Database(dbPath);
+    }
+
     if (!url) {
         adoptLegacyDatabaseFile();
         return new Database(dbPath);
