@@ -28,7 +28,10 @@
  * so the matcher stays narrow and the default stays a dry run.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { db } = require('../server/data/connection');
+const { MANUAL_DIR } = require('../server/adapters/manualAdapter');
 
 /** A `Math.random()` suffix, or a name only a fixture would carry. */
 const FIXTURE_PATTERNS = [
@@ -43,6 +46,40 @@ const FIXTURE_PATTERNS = [
 ];
 
 const looksLikeFixture = (name) => FIXTURE_PATTERNS.some((re) => re.test(name));
+
+/**
+ * A `manual` company whose job file does not exist.
+ *
+ * Name matching keeps failing on these. The first pass missed
+ * `bob-delete@example.com` because it had no random suffix; the second missed
+ * three rows named literally **`Rafael`** — the same name as the real company —
+ * created by test files pointing at `data/manual/somefile.json`. Deleting by
+ * name would have taken the real Rafael with them.
+ *
+ * The reliable discriminator is not what a row is called but **whether it can
+ * ever work**. A manual company is nothing but a pointer to a JSON file; if
+ * that file does not exist, the row produces no jobs and fails every single
+ * scrape, forever. That is true whether it is a leftover fixture or a genuine
+ * typo, and in both cases it does not belong in a live database.
+ *
+ * The real Rafael is exempt for free: it is link-only, so it is never fetched
+ * and its file is never consulted. Belt and braces, the check skips link-only
+ * rows explicitly.
+ */
+function manualFileMissing(company) {
+    if (company.adapter_type !== 'manual') return false;
+    if (company.link_only_reason) return false;
+
+    let file;
+    try {
+        file = JSON.parse(company.adapter_config || '{}').file;
+    } catch {
+        return true; // unparseable config can never resolve to a file
+    }
+    if (!file) return true; // no `file` option at all — "Meta Tenancy Co"
+
+    return !fs.existsSync(path.join(MANUAL_DIR, `${path.basename(file)}.json`));
+}
 
 /**
  * The guard below exists to protect a *real person's* tracked applications. A
@@ -80,8 +117,14 @@ const looksLikeFixtureEmail = (email) => FIXTURE_EMAIL_PATTERNS.some((re) => re.
 
 const confirm = process.argv.includes('--confirm');
 
-const companies = db.prepare('SELECT id, name FROM watched_companies ORDER BY id').all();
-const doomed = companies.filter((c) => looksLikeFixture(c.name));
+const companies = db
+    .prepare('SELECT id, name, adapter_type, adapter_config, link_only_reason FROM watched_companies ORDER BY id')
+    .all();
+
+// Two independent signals: the name looks like a fixture, or the row is a
+// manual company pointing at a file that isn't there. Either is enough — the
+// second exists because three rows named literally "Rafael" got past the first.
+const doomed = companies.filter((c) => looksLikeFixture(c.name) || manualFileMissing(c));
 
 console.log(`\n${companies.length} companies in this database.`);
 
@@ -106,7 +149,13 @@ for (const c of doomed) {
     const apps = appCount.get(c.id).n;
     totalJobs += jobs;
     totalApps += apps;
-    console.log(`  #${String(c.id).padEnd(4)} ${c.name.slice(0, 60).padEnd(62)} ${jobs} job(s)${apps ? `, ${apps} tracked application(s)` : ''}`);
+    // Say WHICH signal caught it — with three rows sharing the real Rafael's
+    // name, "trust me, it's a fixture" is not good enough to delete on.
+    const why = looksLikeFixture(c.name) ? 'name' : `manual file missing (${c.adapter_config || 'no config'})`;
+    console.log(
+        `  #${String(c.id).padEnd(4)} ${c.name.slice(0, 40).padEnd(42)} ${String(jobs).padStart(3)} job(s)` +
+            `${apps ? `, ${apps} app(s)` : '       '}  [${why}]`
+    );
 }
 
 if (totalApps > 0) {
