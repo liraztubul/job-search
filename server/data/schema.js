@@ -65,6 +65,9 @@ const MIGRATIONS = {
         ['known_issue_at', 'TEXT'],
         ['refusal_streak', 'INTEGER NOT NULL DEFAULT 0'],
         ['last_refused_count', 'INTEGER'],
+        // "listed, but not collected" — see the comment on this table in
+        // schema.sql. Set via tools/set-link-only.js.
+        ['link_only_reason', 'TEXT'],
     ],
 };
 

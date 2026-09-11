@@ -518,3 +518,88 @@ of this: **Microsoft Israel got rate-limited mid-run** (Eightfold, 429) and
 was correctly reported as `blocked, NOT acknowledged`, turning that one run
 red on its own — proof the system flags a real, previously-unseen failure
 the same way it now stays quiet about the already-understood ones.
+
+**Pacing and retry added (2026-09-11), because two of the four acknowledged
+`blocked` companies were our own fault.** All 37 companies used to be
+fetched back to back at full speed, ungrouped — one run hit Eightfold's four
+tenants (NVIDIA, Microsoft, Qualcomm, Amdocs) consecutively with no gap, and
+Workday's ten. Microsoft and NVIDIA's `429`s and Workday's intermittent
+same-run block-page-for-seven-tenants (see `parseJsonResponse` above) fit
+exactly that shape — indistinguishable, from the site's side, from an
+attack.
+
+- **`server/domain/scrapeOrder.js`'s `interleaveByPlatform`** round-robins
+  `runCycle`'s company list across `adapter_type` so the same platform's
+  tenants are never adjacent — no sleeping, no time cost, because every
+  *other* company's real fetch is what spaces them out.
+- **`server/domain/retryPolicy.js` + `server/adapters/httpRetry.js`** retry
+  only 429/503 (never 403 — that's a refusal, not congestion), honouring
+  `Retry-After` in either form (seconds or an HTTP-date), capped at 3
+  attempts and 60s per wait — a `Retry-After: 3600` is treated as "not now,"
+  not slept through. Every adapter's fetch goes through `fetchWithRetry` now,
+  the same drop-in replacement everywhere, not copied per adapter.
+- **A stale acknowledgment clears itself.** The moment a company with a
+  `known_issue_kind` actually succeeds, `scrapeService.js` clears it and
+  logs `RESOLVED` — nobody has to notice and run
+  `tools/acknowledge-issue.js --clear` by hand.
+
+**Result, verified with a real local cycle, not just tests: all four
+previously-acknowledged companies succeeded and had their acknowledgment
+auto-cleared in the same run** — NVIDIA (420 jobs), Check Point (92), Keter
+(33), Microsoft (18). Cycle time: 91s (comfortably inside prior runs' range,
+so pacing's reordering is genuinely free as designed). Exit code 0 — the
+first fully green run since classification was added.
+
+**Caveat worth being honest about:** this was run from this machine's own
+connection, not from a GitHub Actions runner's datacenter address. Microsoft
+and NVIDIA's recovery is real evidence pacing/retry fixed a genuine rate
+limit — that mechanism doesn't care which network it runs from. Check Point
+and Keter succeeding here is much weaker evidence: both are `403`/block-page
+refusals this project has deliberately not tried to engineer around (see
+docs/DEPLOY.md's new "Two companies the cloud scrape will never update"
+section), and a local, non-datacenter connection succeeding at something a
+datacenter address is blocked from is exactly the expected, unrelated reason
+— not proof pacing helped them. **The next scheduled GitHub Actions run is
+the real test for those two**; if it blocks them again, that run will
+correctly report it as `blocked, NOT acknowledged` and re-acknowledging them
+is the right move, not a regression.
+
+**Rafael marked link-only instead of pretending three hand-typed jobs are its
+whole listing (2026-09-11).** Rafael's own site lists roughly 400 open
+positions; JobTrail only ever had the three someone typed in by hand through
+the `manual` adapter — a visitor filtering to Rafael saw three jobs and had
+no way to know that wasn't the real count. Same failure shape as the old
+"IBM Israel (0)" that got IBM deactivated, and the fix follows the same
+principle: don't let the site imply completeness it can't back up.
+
+A new `watched_companies.link_only_reason` column (set via
+`tools/set-link-only.js --name --reason`, cleared with `--clear`) is a third
+state, deliberately not reusing `known_issue_kind`: that column says "this
+*failure* is expected right now"; this one says "there is no collection
+attempt here at all." A link-only company is skipped by `getActiveCompanies()`
+entirely (not fetched, not counted as a failure — it isn't one), its
+existing `job_snapshots` rows are excluded from search
+(`buildJobFilters`) but never deleted, and it still appears in
+`filterOptions()` — marked, so the company picker offers it rather than
+silently dropping it. Filtering to it shows a plain notice (visibly not a
+job card — no status dropdown, no tags) linking to `career_url`, and a
+compact page-wide line names every link-only company so the gap is
+discoverable without hunting for it.
+
+Applying it to Rafael found a second, pre-existing bug: its `career_url` had
+been empty since whenever the company row was first created (`add-job.js`
+only ever writes to the manual JSON file, never touches `watched_companies`)
+— the new "לצפייה במשרות באתר שלהם" link would have pointed nowhere. Fixed
+using the URL already verified live elsewhere in this project
+(`career.rafael.co.il`, present in `tests/jobAvailability.test.js`'s and
+`manualAdapter.test.js`'s fixtures since 2026-08-19) — not a new fetch, just
+correcting stale configuration with data this project already had.
+
+**Checked whether any other already-registered company deserves the same
+treatment: no.** Rafael is the only `manual`-adapter row in `watched_companies`
+— Israel Aerospace Industries, AllJobs and Wix were all investigated and
+never added (see the dead-end notes above), so none of them exist as a row
+to reclassify. Verified the drop this caused is exactly Rafael's three: total
+open `job_snapshots` was 2293, Rafael accounted for 3 of them, and
+`countJobs` (what search actually serves) reads 2290 — the arithmetic
+checks out, nothing else got caught in the exclusion.

@@ -1,6 +1,7 @@
 const { JobSource } = require('./JobSource');
 const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Ashby's public job board API — the recruiting platform behind monday.com's
@@ -65,7 +66,7 @@ class AshbyAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(this.boardUrl);
+        const res = await fetchWithRetry(this.boardUrl, undefined, { label: `Ashby (${this.boardName})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `Ashby fetch failed for board "${this.boardName}": ${res.status} ${res.statusText}`,

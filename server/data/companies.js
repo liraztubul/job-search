@@ -4,8 +4,15 @@
 
 const { db } = require('./connection');
 
+/**
+ * What a scrape cycle actually visits — `is_active = 1` and not link-only.
+ * A link-only company (Rafael; see the comment on watched_companies in
+ * schema.sql) is deliberately never fetched, so it is excluded here rather
+ * than left for scrapeService.js to skip case by case — the one place that
+ * decides what gets scraped is the one place that needs to know why not.
+ */
 function getActiveCompanies() {
-    return db.prepare('SELECT * FROM watched_companies WHERE is_active = 1').all();
+    return db.prepare('SELECT * FROM watched_companies WHERE is_active = 1 AND link_only_reason IS NULL').all();
 }
 
 function listCompanies() {
@@ -101,6 +108,21 @@ function recordRefusal(companyId, returnedCount) {
     return streak;
 }
 
+/**
+ * "Listed, but not collected" — see the comment on watched_companies in
+ * schema.sql. Distinct from setKnownIssue on purpose: an acknowledgment says
+ * a *failure* is expected right now; this says there is no attempt to fail
+ * in the first place. Reversible — existing job_snapshots rows are never
+ * touched by either this or clearLinkOnly, only whether they're offered.
+ */
+function setLinkOnly(companyId, reason) {
+    db.prepare('UPDATE watched_companies SET link_only_reason = ? WHERE id = ?').run(reason, companyId);
+}
+
+function clearLinkOnly(companyId) {
+    db.prepare('UPDATE watched_companies SET link_only_reason = NULL WHERE id = ?').run(companyId);
+}
+
 module.exports = {
     getActiveCompanies,
     listCompanies,
@@ -112,4 +134,6 @@ module.exports = {
     clearKnownIssue,
     resetRefusalStreak,
     recordRefusal,
+    setLinkOnly,
+    clearLinkOnly,
 };

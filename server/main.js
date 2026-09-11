@@ -15,6 +15,7 @@ const report = {
     'company:fetched': (e) => `  ${e.count} jobs`,
     'company:failed': (e) => `  FAILED (${e.kind}): ${e.error}`,
     'company:closed': (e) => `  CLOSED: ${e.count} job(s) no longer on the site`,
+    'company:issue-cleared': (e) => `  RESOLVED: acknowledged "${e.kind}" no longer applies — acknowledgment cleared`,
     'job:new': (e) => `  NEW: ${e.title} (${e.location || 'no location'})`,
     'job:matched': (e) => `    -> matches "${e.profile}": ${e.url}`,
 };

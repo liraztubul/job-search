@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Workday's candidate experience site (CXS) — the recruiting platform behind
@@ -151,11 +152,11 @@ class WorkdayAdapter extends JobSource {
     }
 
     async postSearch(body) {
-        const res = await fetch(this.jobsUrl, {
-            method: 'POST',
-            headers: { ...HTML_HEADERS, 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify(body),
-        });
+        const res = await fetchWithRetry(
+            this.jobsUrl,
+            { method: 'POST', headers: { ...HTML_HEADERS, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) },
+            { label: `Workday (${this.host})` }
+        );
         if (!res.ok) {
             throw new ScrapeError(`Workday search failed for ${this.host}: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }

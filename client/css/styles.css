@@ -348,6 +348,24 @@ td a:hover { color:var(--accent); }
 .empty ol { text-align:start; display:inline-block; margin:.75rem 0 0; }
 .empty li { margin:.31rem 0; }
 
+/* ------------------------------ link-only companies -------------------------- */
+/* The permanent, page-wide mention — plain information, not a problem, so it
+   gets the same quiet tone as .results-note, not a warning colour. */
+.link-only-note { font-size:.88rem; color:var(--muted); margin:0 0 .88rem; }
+
+/* Shown instead of a job list when someone filters to a link-only company.
+   Deliberately NOT built from .job's shape (no white surface, no solid border,
+   no grid-with-a-status-column) — someone skimming must not mistake this for
+   a posting. The quiet accent tint (same pair as .tag-new) says "information"
+   without borrowing the warning colour .freshness-note.stale uses. */
+.link-only-notice {
+  background:var(--tag-accent-bg); border:1px solid var(--tag-accent-fg);
+  border-radius:12px; padding:2rem 1.5rem; text-align:center;
+}
+.link-only-notice h2 { margin:0 0 .5rem; font-size:1.19rem; font-weight:650; color:var(--tag-accent-fg); }
+.link-only-notice p { margin:0 0 1.25rem; color:var(--text); font-size:.97rem; }
+.link-only-cta { text-decoration:none; }
+
 /* -------------------------------- pagination -------------------------------- */
 /* Logical properties throughout — this is the one part of the page where
    getting left/right backwards instead of start/end is the classic RTL bug. */

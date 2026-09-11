@@ -74,7 +74,19 @@ CREATE TABLE IF NOT EXISTS watched_companies (
     -- refused, so it goes red instead of staying quiet forever). Reset to
     -- 0/NULL the moment a cycle is trusted again, by either path.
     refusal_streak INTEGER NOT NULL DEFAULT 0,
-    last_refused_count INTEGER
+    last_refused_count INTEGER,
+    -- Set via tools/set-link-only.js when the company's own site blocks
+    -- automated collection outright (Reblaze on Rafael, the same family on
+    -- Israel Aerospace Industries and AllJobs — see CLAUDE.md's dead-end
+    -- notes) and this project has decided not to engineer around that. A
+    -- link-only company is NOT scraped (getActiveCompanies() excludes it)
+    -- and its job_snapshots rows are excluded from search results — but
+    -- never deleted; the flag is a presentation decision, and presentation
+    -- decisions must stay reversible. Different meaning from
+    -- known_issue_kind on purpose: that says "this failure is expected right
+    -- now", this says "we deliberately do not collect from here" — collapsing
+    -- the two would make an acknowledgment ambiguous about which one it is.
+    link_only_reason TEXT
 );
 
 -- Every job we've ever seen, per company, per scrape cycle

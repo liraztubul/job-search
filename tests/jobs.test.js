@@ -7,7 +7,7 @@ process.env.JT_DB_PATH = ':memory:';
 const test = require('node:test');
 const assert = require('node:assert');
 const { db } = require('../server/data/connection');
-const { addCompany, setFirstScrapedAt, setCompanyActive } = require('../server/data/companies');
+const { addCompany, setFirstScrapedAt, setCompanyActive, setLinkOnly, clearLinkOnly } = require('../server/data/companies');
 const { createUser } = require('../server/data/users');
 const {
     queryJobs,
@@ -437,6 +437,58 @@ test('setCompanyActive(true) makes a company reappear in the filter list', () =>
 
     setCompanyActive(companyId, true);
     assert.ok(filterOptions(GUEST).companies.some((c) => c.id === companyId));
+});
+
+// ---------------------------------------------------------------------------
+// link_only_reason — "listed, but not collected" (Rafael). See the comment
+// on watched_companies in schema.sql, tools/set-link-only.js, and CLAUDE.md.
+// A link-only company's existing jobs are hidden from search but never
+// deleted, and it still appears in filterOptions() (marked), unlike a
+// deactivated company above which disappears from the picker entirely.
+// ---------------------------------------------------------------------------
+
+test('a link-only company\'s jobs are excluded from queryJobs and countJobs', () => {
+    const companyId = addCompany({ name: `Link Only Search ${Math.random()}`, careerUrl: 'https://example.com/careers', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'r1', title: 'Engineer', location: 'Haifa', applyUrl: 'https://example.com/r1' });
+    upsertJobSnapshot(companyId, { externalId: 'r2', title: 'Technician', location: 'Haifa', applyUrl: 'https://example.com/r2' });
+
+    assert.equal(countJobs(userId, { companyId }), 2, 'sanity check: visible before the flag is set');
+
+    setLinkOnly(companyId, 'Reblaze bot protection blocks collection');
+
+    assert.equal(countJobs(userId, { companyId }), 0);
+    assert.deepEqual(queryJobs(userId, { companyId }).jobs, []);
+});
+
+test('a link-only company still appears in filterOptions, marked with its reason and careerUrl', () => {
+    const companyId = addCompany({ name: `Link Only Picker ${Math.random()}`, careerUrl: 'https://example.com/careers', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'x', title: 'X', location: 'Haifa', applyUrl: 'https://example.com/x' });
+    setLinkOnly(companyId, 'Reblaze bot protection blocks collection');
+
+    const entry = filterOptions(GUEST).companies.find((c) => c.id === companyId);
+    assert.ok(entry, 'a link-only company must still be offered in the picker');
+    assert.equal(entry.linkOnlyReason, 'Reblaze bot protection blocks collection');
+    assert.equal(entry.careerUrl, 'https://example.com/careers');
+});
+
+test('a normal (not link-only) company reports linkOnlyReason as null, not omitted', () => {
+    const companyId = addCompany({ name: `Normal Co ${Math.random()}`, careerUrl: 'https://example.com', adapterType: 'manual', config: {} });
+    const entry = filterOptions(GUEST).companies.find((c) => c.id === companyId);
+    assert.equal(entry.linkOnlyReason, null);
+});
+
+test('link-only is reversible: clearing it brings the same, never-deleted jobs back', () => {
+    const companyId = addCompany({ name: `Reversible Search ${Math.random()}`, careerUrl: 'https://example.com', adapterType: 'manual', config: {} });
+    const { id: jobId } = upsertJobSnapshot(companyId, { externalId: 'a', title: 'A', location: 'Haifa', applyUrl: 'https://example.com/a' });
+
+    setLinkOnly(companyId, 'reason');
+    assert.equal(countJobs(userId, { companyId }), 0);
+    // The row itself must still exist, untouched, while hidden.
+    assert.ok(db.prepare('SELECT id FROM job_snapshots WHERE id = ?').get(jobId), 'the underlying row must not be deleted while link-only');
+
+    clearLinkOnly(companyId);
+    assert.equal(countJobs(userId, { companyId }), 1);
+    assert.deepEqual(queryJobs(userId, { companyId }).jobs.map((j) => j.id), [jobId]);
 });
 
 test('setFirstScrapedAt is set once, and every later call is a no-op — the new-company trap depends on this', () => {

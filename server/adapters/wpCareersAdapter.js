@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * WordPress sites that publish jobs as a custom post type with a taxonomy for
@@ -50,7 +51,7 @@ class WpCareersAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(this.postingsUrl, { headers: HTML_HEADERS });
+        const res = await fetchWithRetry(this.postingsUrl, { headers: HTML_HEADERS }, { label: `WordPress careers (${this.host})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `WordPress careers fetch failed for ${this.host}: ${res.status} ${res.statusText}`,

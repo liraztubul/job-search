@@ -2,7 +2,7 @@ process.env.JT_DB_PATH = ':memory:';
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { addCompany, setKnownIssue } = require('../server/data/companies');
+const { addCompany, setKnownIssue, setLinkOnly } = require('../server/data/companies');
 const { upsertJobSnapshot } = require('../server/data/jobs');
 
 /**
@@ -34,9 +34,9 @@ const rawJob = (id) => ({ externalId: id, title: `Job ${id}`, location: 'Tel Avi
  * test must key `behaviors` and search summary.failures by this returned
  * `.name`, never by the label passed in, since addCompany needs a unique
  * name and this is what makes it one. */
-function seedCompany(label) {
+function seedCompany(label, adapterType = 'manual') {
     const name = `${label} ${Math.random()}`;
-    const id = addCompany({ name, careerUrl: '', adapterType: 'manual', config: {} });
+    const id = addCompany({ name, careerUrl: '', adapterType, config: {} });
     return { id, name };
 }
 
@@ -217,4 +217,93 @@ test('a normal trusted cycle still creates new jobs through the mocked adapter',
     const summary = await runCycle();
     assert.ok(summary.newJobs >= 2);
     assert.equal(summary.failures.find((f) => f.company === company.name), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// A stale acknowledgment clears itself the moment the company succeeds
+// again — see companies.js's clearKnownIssue and the comment in
+// scrapeService.js on why this doesn't wait for a human to notice.
+// ---------------------------------------------------------------------------
+
+test('a company that succeeds after being acknowledged has its acknowledgment cleared, and the run says so', async () => {
+    const { db } = require('../server/data/connection');
+    const company = seedCompany('Recovered');
+    setKnownIssue(company.id, FAILURE_KIND.BLOCKED, 'was rate-limited, since fixed by pacing');
+    behaviors.set(company.name, () => Promise.resolve([rawJob('recovered-1')]));
+
+    const events = [];
+    const summary = await runCycle((event) => events.push(event));
+
+    assert.equal(summary.failures.find((f) => f.company === company.name), undefined, 'a successful cycle is not a failure');
+    assert.equal(
+        db.prepare('SELECT known_issue_kind FROM watched_companies WHERE id = ?').get(company.id).known_issue_kind,
+        null,
+        'known_issue_kind must be cleared once the company actually succeeds'
+    );
+    const cleared = events.find((e) => e.type === 'company:issue-cleared' && e.company === company.name);
+    assert.ok(cleared, 'a company:issue-cleared event must fire so the run log says it happened');
+    assert.equal(cleared.kind, FAILURE_KIND.BLOCKED);
+});
+
+test('a company with no acknowledgment succeeding does not fire an issue-cleared event', async () => {
+    const company = seedCompany('Never Had An Issue');
+    behaviors.set(company.name, () => Promise.resolve([rawJob('fine-1')]));
+
+    const events = [];
+    await runCycle((event) => events.push(event));
+
+    assert.equal(events.find((e) => e.type === 'company:issue-cleared' && e.company === company.name), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Pacing: runCycle actually uses interleaveByPlatform, not just a function
+// that exists and is tested in isolation (tests/scrapeOrder.test.js).
+// ---------------------------------------------------------------------------
+
+test('runCycle visits companies in platform-interleaved order, not DB-insertion order', async () => {
+    // Three of one platform, inserted back to back, plus one of another —
+    // in plain insertion order these three would be adjacent; interleaved,
+    // they cannot be (see tests/scrapeOrder.test.js for the pure guarantee).
+    const platform = `pacing-platform-${Math.random()}`;
+    const other = `pacing-other-${Math.random()}`;
+    const g1 = seedCompany('Pace G1', platform);
+    const g2 = seedCompany('Pace G2', platform);
+    const g3 = seedCompany('Pace G3', platform);
+    const o1 = seedCompany('Pace O1', other);
+    for (const c of [g1, g2, g3, o1]) behaviors.set(c.name, () => Promise.resolve([rawJob(`${c.name}-1`)]));
+
+    const events = [];
+    await runCycle((event) => events.push(event));
+
+    const startOrder = events.filter((e) => e.type === 'company:start').map((e) => e.company);
+    const gIndices = [g1, g2, g3].map((c) => startOrder.indexOf(c.name)).sort((a, b) => a - b);
+    // g1/g2/g3 must not all be consecutive — o1 (or some other-platform
+    // company from an earlier test, equally valid proof) has to land between
+    // at least two of them.
+    assert.ok(
+        gIndices[2] - gIndices[0] > 2,
+        `expected the three same-platform companies to be spread out, got start order: ${startOrder.join(', ')}`
+    );
+});
+
+// ---------------------------------------------------------------------------
+// A link-only company (Rafael) is skipped entirely — not attempted, and
+// never counted as a failure, because it isn't one. See
+// server/data/companies.js's getActiveCompanies() (this is where the
+// exclusion actually happens; there is nothing link-only-specific left for
+// scrapeService.js itself to do).
+// ---------------------------------------------------------------------------
+
+test('a link-only company is never fetched and never appears in the run at all', async () => {
+    const company = seedCompany('Link Only Rafael-like');
+    setLinkOnly(company.id, 'Reblaze bot protection blocks collection');
+    let fetchAttempted = false;
+    behaviors.set(company.name, () => { fetchAttempted = true; return Promise.resolve([rawJob('should-never-be-seen')]); });
+
+    const events = [];
+    const summary = await runCycle((event) => events.push(event));
+
+    assert.equal(fetchAttempted, false, 'the adapter must never be called for a link-only company');
+    assert.equal(events.some((e) => e.company === company.name), false, 'it must not even show up as company:start');
+    assert.equal(summary.failures.find((f) => f.company === company.name), undefined, 'skipping is not a failure');
 });

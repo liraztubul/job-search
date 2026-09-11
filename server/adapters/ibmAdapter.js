@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities } = require('./htmlUtils');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * IBM's careers site (careers.ibm.com, searched from www.ibm.com/careers/search)
@@ -85,11 +86,11 @@ class IbmAdapter extends JobSource {
     }
 
     async fetchPage(from) {
-        const res = await fetch(SEARCH_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(this.buildBody(from)),
-        });
+        const res = await fetchWithRetry(
+            SEARCH_URL,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.buildBody(from)) },
+            { label: 'IBM' }
+        );
         if (!res.ok) {
             throw new ScrapeError(`IBM search failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }

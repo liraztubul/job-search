@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Greenhouse's public job board API — one of the most common third-party
@@ -74,7 +75,7 @@ class GreenhouseAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(this.boardUrl);
+        const res = await fetchWithRetry(this.boardUrl, undefined, { label: `Greenhouse (${this.boardToken})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `Greenhouse fetch failed for board "${this.boardToken}": ${res.status} ${res.statusText}`,

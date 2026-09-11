@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Apple's careers site (jobs.apple.com) renders its search results server-side
@@ -96,7 +97,7 @@ class AppleAdapter extends JobSource {
         const seen = new Set();
 
         for (let page = 1; page <= MAX_PAGES; page++) {
-            const res = await fetch(this.buildUrl(page), { headers: HTML_HEADERS });
+            const res = await fetchWithRetry(this.buildUrl(page), { headers: HTML_HEADERS }, { label: `Apple page ${page}` });
             if (!res.ok) {
                 throw new ScrapeError(
                     `Apple fetch failed on page ${page}: ${res.status} ${res.statusText}`,

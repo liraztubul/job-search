@@ -9,6 +9,9 @@ const {
     clearKnownIssue,
     resetRefusalStreak,
     recordRefusal,
+    setLinkOnly,
+    clearLinkOnly,
+    getActiveCompanies,
 } = require('../server/data/companies');
 
 function seedCompany(name) {
@@ -101,4 +104,47 @@ test('refusal streaks are per-company, not global', () => {
 
     assert.equal(readCompany(a).refusal_streak, 2);
     assert.equal(readCompany(b).refusal_streak, 1);
+});
+
+// ---------------------------------------------------------------------------
+// link_only_reason — "listed, but not collected" (Rafael). See the comment
+// on watched_companies in schema.sql and tools/set-link-only.js. Distinct
+// from known_issue_kind: this says there's no collection attempt at all, not
+// that a particular kind of failure is expected.
+// ---------------------------------------------------------------------------
+
+test('a freshly added company is not link-only', () => {
+    const id = seedCompany('Fresh Not Link-Only');
+    assert.equal(readCompany(id).link_only_reason, null);
+});
+
+test('setLinkOnly records the reason', () => {
+    const id = seedCompany('Rafael-like Co');
+    setLinkOnly(id, 'Reblaze bot protection blocks automated collection');
+    assert.equal(readCompany(id).link_only_reason, 'Reblaze bot protection blocks automated collection');
+});
+
+test('clearLinkOnly reverses it — the flag, not the underlying rows, is what changes', () => {
+    const id = seedCompany('Reversible Co');
+    setLinkOnly(id, 'reason');
+    clearLinkOnly(id);
+    assert.equal(readCompany(id).link_only_reason, null);
+});
+
+test('getActiveCompanies excludes a link-only company even though is_active stays 1', () => {
+    const id = seedCompany('Link-Only Excluded');
+    assert.ok(getActiveCompanies().some((c) => c.id === id), 'sanity check: it starts included');
+
+    setLinkOnly(id, 'blocked by design');
+
+    const active = getActiveCompanies();
+    assert.ok(!active.some((c) => c.id === id), 'a link-only company must not be scraped');
+    assert.equal(readCompany(id).is_active, 1, 'is_active itself must be untouched — this is not a deactivation');
+});
+
+test('clearing link-only makes the company scrapeable again', () => {
+    const id = seedCompany('Back In Rotation');
+    setLinkOnly(id, 'reason');
+    clearLinkOnly(id);
+    assert.ok(getActiveCompanies().some((c) => c.id === id));
 });

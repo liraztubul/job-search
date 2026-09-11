@@ -391,6 +391,14 @@ function buildJobFilters(filters, owner) {
     // never make someone's own tracked application vanish from their
     // dashboard, only from the public search.
     where.push('j.is_still_open = 1');
+    // A link-only company's rows are hidden, not deleted — see the comment
+    // on watched_companies.link_only_reason in schema.sql. A subquery rather
+    // than a JOIN on watched_companies here because countJobs (which shares
+    // this WHERE clause) doesn't join that table at all, and duplicating its
+    // FROM clause just to add one more static condition would be the exact
+    // "the two built their WHERE clauses independently" drift this function
+    // exists to prevent.
+    where.push('j.company_id NOT IN (SELECT id FROM watched_companies WHERE link_only_reason IS NOT NULL)');
 
     return { whereClause: where.join(' AND '), params };
 }
@@ -551,9 +559,15 @@ function filterOptions(userId) {
         // from future scrapes — a company the site has stopped tracking (see
         // CLAUDE.md's note on IBM Israel) must not still be offered as a
         // filter option implying there's something behind it to browse.
+        //
+        // A link-only company (is_active stays 1 — it's still tracked, just
+        // not collected) DOES stay in this list, deliberately: the client
+        // needs careerUrl/linkOnlyReason to mark it in the picker and render
+        // the "look on their own site" notice when someone chooses it. See
+        // client/js/search.js.
         companies: db
             .prepare(
-                `SELECT c.id, c.name, COUNT(j.id) AS count
+                `SELECT c.id, c.name, c.career_url AS careerUrl, c.link_only_reason AS linkOnlyReason, COUNT(j.id) AS count
                    FROM watched_companies c LEFT JOIN job_snapshots j ON j.company_id = c.id
                   WHERE c.is_active = 1
                   GROUP BY c.id ORDER BY c.name`

@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { normalizeEmploymentType, guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Elbit Systems publishes its whole vacancy list as one static JSON file:
@@ -93,7 +94,7 @@ class ElbitAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(`${ENDPOINT}?t=${Date.now()}`, { headers: HTML_HEADERS });
+        const res = await fetchWithRetry(`${ENDPOINT}?t=${Date.now()}`, { headers: HTML_HEADERS }, { label: 'Elbit' });
         if (!res.ok) {
             throw new ScrapeError(`Elbit fetch failed: ${res.status} ${res.statusText}`, classifyHttpStatus(res.status));
         }

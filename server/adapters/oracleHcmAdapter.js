@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Oracle Recruiting Cloud (the "Candidate Experience" site under
@@ -80,7 +81,7 @@ class OracleHcmAdapter extends JobSource {
     }
 
     async fetchPage(offset) {
-        const res = await fetch(this.buildUrl(offset), { headers: HTML_HEADERS });
+        const res = await fetchWithRetry(this.buildUrl(offset), { headers: HTML_HEADERS }, { label: `Oracle HCM (${this.host})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `Oracle HCM fetch failed for ${this.host}: ${res.status} ${res.statusText}`,

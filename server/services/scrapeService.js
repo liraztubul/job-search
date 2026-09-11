@@ -14,6 +14,7 @@ const { matches } = require('../domain/matcher');
 const { buildAdapter } = require('../adapters');
 const { evaluateSanityGate } = require('../domain/scrapeSanity');
 const { FAILURE_KIND, classifyFailure, shouldGoRed } = require('../domain/scrapeOutcome');
+const { interleaveByPlatform } = require('../domain/scrapeOrder');
 
 // Three refusals in a row is nine hours (the scrape runs every 3h) of a
 // company's data frozen at a number nobody has confirmed is real. See the
@@ -38,7 +39,14 @@ function recordFailure(summary, onEvent, company, kind, error, extra = {}) {
  */
 async function runCycle(onEvent = () => {}) {
     const startedAt = new Date().toISOString();
-    const companies = data.getActiveCompanies();
+    // Round-robined across adapter_type (server/domain/scrapeOrder.js) rather
+    // than left in whatever order the DB returned: eleven Greenhouse tenants
+    // or ten Workday ones back to back, at full speed, from one address is
+    // indistinguishable from an attack to the platform on the other end —
+    // see CLAUDE.md's note on the rate limits this used to cause. Spreading
+    // the same platform's tenants apart costs nothing (no sleeping) because
+    // every OTHER company's real fetch happens in between.
+    const companies = interleaveByPlatform(data.getActiveCompanies());
     const profiles = data.getActiveProfiles();
     const summary = { companies: companies.length, newJobs: 0, closedJobs: 0, matches: 0, failures: [] };
 
@@ -85,6 +93,16 @@ async function runCycle(onEvent = () => {}) {
         // repeating drop. Either way any past streak is over; a future refusal
         // starts counting from zero rather than inheriting this one.
         if (company.refusal_streak > 0) data.resetRefusalStreak(company.id);
+
+        // A known_issue_kind records "this is expected right now" — the
+        // moment a fetch actually succeeds that statement is false, and a
+        // stale acknowledgment is worse than none: it would silence a real
+        // failure of the same kind later. No human has to notice and clear
+        // it by hand; the run does it the moment it stops being true.
+        if (company.known_issue_kind) {
+            data.clearKnownIssue(company.id);
+            onEvent({ type: 'company:issue-cleared', company: company.name, kind: company.known_issue_kind });
+        }
 
         // One SELECT + a handful of batched writes for the whole company,
         // not two round trips per job — see the comment on

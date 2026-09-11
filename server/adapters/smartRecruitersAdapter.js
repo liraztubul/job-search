@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * SmartRecruiters' public job postings API — public, unauthenticated, meant
@@ -70,7 +71,7 @@ class SmartRecruitersAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(this.postingsUrl);
+        const res = await fetchWithRetry(this.postingsUrl, undefined, { label: `SmartRecruiters (${this.companyIdentifier})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `SmartRecruiters fetch failed for company "${this.companyIdentifier}": ${res.status} ${res.statusText}`,

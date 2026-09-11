@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { locationTokens, isIsraeliLocation } = require('../domain/locations');
 const { normalizeEmploymentType, normalizeExperienceLevel, guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, FAILURE_KIND, classifyHttpStatus, parseJsonResponse } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Comeet's public per-company positions API. Verified against Lumenis on
@@ -46,7 +47,7 @@ class ComeetAdapter extends JobSource {
     }
 
     async getCurrentJobs() {
-        const res = await fetch(this.positionsUrl);
+        const res = await fetchWithRetry(this.positionsUrl, undefined, { label: `Comeet (${this.companyUid})` });
         if (!res.ok) {
             throw new ScrapeError(
                 `Comeet fetch failed for company "${this.companyUid}": ${res.status} ${res.statusText}`,

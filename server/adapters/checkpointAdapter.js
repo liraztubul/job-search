@@ -2,6 +2,7 @@ const { JobSource } = require('./JobSource');
 const { decodeEntities, HTML_HEADERS } = require('./htmlUtils');
 const { guessExperienceFromTitle } = require('../domain/vocabulary');
 const { ScrapeError, classifyHttpStatus } = require('../domain/scrapeOutcome');
+const { fetchWithRetry } = require('./httpRetry');
 
 /**
  * Check Point's own careers portal (careers.checkpoint.com) — a bespoke PHP
@@ -82,7 +83,7 @@ class CheckpointAdapter extends JobSource {
 
         for (let page = 0; page < MAX_PAGES; page++) {
             const start = page * PAGE_SIZE;
-            const res = await fetch(this.buildUrl(start), { headers: HTML_HEADERS });
+            const res = await fetchWithRetry(this.buildUrl(start), { headers: HTML_HEADERS }, { label: `Check Point (start=${start})` });
             if (!res.ok) {
                 throw new ScrapeError(
                     `Check Point fetch failed on start=${start}: ${res.status} ${res.statusText}`,

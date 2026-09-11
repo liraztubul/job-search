@@ -98,6 +98,38 @@ Then **Apply** / **Manual Deploy**.
   route — everything else worked on the previous deployment too.
 - `/robots.txt` and `/sitemap.xml` return plain text, not a download
 
+## Two companies the cloud scrape will never update
+
+Check Point and Keter both decided, as sites, that they don't answer
+datacenter traffic — Check Point with a 403, Keter with a 200 that carries an
+HTML block page instead of the JSON its own careers page reads. Both are
+acknowledged as `blocked` (`watched_companies.known_issue_kind` — see
+`tools/acknowledge-issue.js` and `server/domain/scrapeOutcome.js`) so the
+scheduled run doesn't go red over something pacing and retry cannot fix: a
+datacenter address is not a burst of requests, it's a return address, and
+there is nothing to back off from.
+
+The only honest way to keep these two current is running the scrape from a
+connection they already serve — a home connection, same as checking the site
+in a browser:
+
+```powershell
+$env:TURSO_DATABASE_URL="libsql://your-db.turso.io"
+$env:TURSO_AUTH_TOKEN="..."
+node server/main.js
+```
+
+This is the same `runCycle` the scheduled workflow calls, against the same
+hosted database — nothing to reconcile afterward. Do this occasionally by
+hand for these two; it is not worth automating a second scrape path over
+someone's home IP just for two companies (see CLAUDE.md's note on why this
+project has one `runCycle`, not two).
+
+**Do not "fix" this with a proxy or a residential-IP service.** That is the
+same move as bypassing Rafael's Reblaze protection, which this project has
+consistently declined to do — the sites made a decision about datacenter
+traffic, and working around it is not a technical problem worth solving.
+
 ---
 
 # Route B — Fly.io (accounts, a real volume, card required)

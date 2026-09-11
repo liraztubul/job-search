@@ -26,7 +26,10 @@ let companies = []; // [{id, name, count}]
 let selectedCompanyId = '';
 let activeOptionIndex = -1;
 
-const companyLabel = (c) => `${c.name} (${c.count})`;
+// "(באתר שלהם)" marks a link-only company (server/data/jobs.js's
+// filterOptions() includes linkOnlyReason for exactly this) — choosing one
+// from the picker should be an informed click, not a surprise empty result.
+const companyLabel = (c) => `${c.name}${c.linkOnlyReason ? ' (באתר שלהם)' : ''} (${c.count})`;
 const companyOptions = () => [...$('f-company-listbox').querySelectorAll('[role=option]')];
 
 function matchingCompanies(query) {
@@ -238,6 +241,22 @@ function renderFreshness() {
     : `עודכן ${relative}.`;
 }
 
+/**
+ * A quiet, permanent line (not a banner, not a warning colour — see
+ * client/css/styles.css's .link-only-note) naming every link-only company,
+ * so their absence from the results is discoverable without first filtering
+ * to one and hitting the dedicated notice in load() below.
+ */
+function renderLinkOnlyNote() {
+  const note = $('link-only-note');
+  if (!note) return;
+  const names = companies.filter((c) => c.linkOnlyReason).map((c) => c.name);
+  note.hidden = names.length === 0;
+  if (names.length) {
+    note.textContent = `המשרות של ${names.join(', ')} אינן נאספות אוטומטית וזמינות רק באתר החברה עצמה.`;
+  }
+}
+
 async function loadMeta() {
   meta = await fetchJson('/api/meta');
   companies = meta.companies;
@@ -248,6 +267,7 @@ async function loadMeta() {
   // filterOptions() never runs the per-account query for a guest at all.
   fillSelect($('f-status'), meta.statuses || [], HEBREW.status);
   renderFreshness();
+  renderLinkOnlyNote();
 }
 
 // The whole filter state (including page) lives in this one query string, so
@@ -578,6 +598,25 @@ function renderPagination(page, totalPages) {
   nav.append(prev, numbers, next);
 }
 
+/**
+ * Shown instead of a job list (or an empty-results message) when someone
+ * filters to a link-only company — deliberately not built from jobCard() or
+ * given the `.job`/`.jobs` classes: a real posting and "we don't have their
+ * postings, here's their own site" must never be visually confusable at a
+ * skim. See client/css/styles.css's .link-only-notice.
+ */
+function linkOnlyNotice(company) {
+  const link = el('a', {
+    href: company.careerUrl, target: '_blank', rel: 'noopener noreferrer',
+    className: 'btn primary link-only-cta',
+    textContent: `לצפייה במשרות באתר של ${company.name} ←`,
+  });
+  return el('div', { className: 'link-only-notice' },
+    el('h2', { textContent: company.name }),
+    el('p', { textContent: `האתר של ${company.name} חוסם איסוף אוטומטי, ולכן המשרות שלהם לא מופיעות כאן.` }),
+    link);
+}
+
 function emptyState(totalMatching, page) {
   // A page past the end of the real result set (typed into the URL, or a
   // bookmark from before the filter narrowed) is not "no matches" — the
@@ -613,6 +652,21 @@ function emptyState(totalMatching, page) {
 }
 
 async function load() {
+  // A link-only company's jobs are already excluded server-side (see
+  // server/data/jobs.js's buildJobFilters) — asking the API would just come
+  // back with zero results and land on the generic "no matches" message,
+  // which is exactly the dishonest-by-omission state this feature exists to
+  // replace. Checked against the already-loaded company list, no extra request.
+  const linkOnlyCompany = selectedCompanyId
+    && companies.find((c) => String(c.id) === selectedCompanyId && c.linkOnlyReason);
+  if (linkOnlyCompany) {
+    updateUrl();
+    $('results-count').textContent = 'המשרות זמינות באתר החברה עצמה';
+    $('results').replaceChildren(linkOnlyNotice(linkOnlyCompany));
+    $('pagination').replaceChildren();
+    return;
+  }
+
   let jobs, page, pageSize, totalMatching, totalPages;
   try {
     ({ jobs, page, pageSize, totalMatching, totalPages } = await fetchJson('/api/jobs?' + buildQuery()));
