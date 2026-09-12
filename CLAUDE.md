@@ -564,6 +564,41 @@ the real test for those two**; if it blocks them again, that run will
 correctly report it as `blocked, NOT acknowledged` and re-acknowledging them
 is the right move, not a regression.
 
+**The scheduled run answered it (2026-09-12), and the answer was better than
+expected.** 36 companies, 33 new jobs, 33 closed, **0 broken**. Microsoft and
+NVIDIA both succeeded from a datacenter address — pacing/retry genuinely fixed
+a rate limit, as predicted. **Keter succeeded too**, which the caveat above
+expected to fail; its block was apparently not as address-bound as Check
+Point's. Check Point alone still refuses, correctly reported as `blocked,
+already acknowledged` and correctly silent.
+
+One new failure, and it is the useful kind: **Qualcomm returned `429 TOO MANY
+REQUESTS`** (Eightfold), reported as `blocked, NOT acknowledged`. Two things
+follow from it:
+
+1. **`fetchWithRetry` spent all three attempts and still failed**, so
+   Eightfold's rate-limit window outlasts the 60s cap `retryPolicy.js` allows
+   itself. That cap is deliberate (a `Retry-After: 3600` must not be slept
+   through) — the fix belongs in ordering, not in waiting longer.
+2. **`interleaveByPlatform`'s spacing decayed across the run** — the actual
+   bug. Greedy round-robin deals from every platform early and only from
+   Greenhouse/Workday late, so Eightfold's four tenants landed at 5, 15, 20,
+   23: gaps of 10, 5, 3. The two in wide gaps (NVIDIA, Microsoft) succeeded;
+   Qualcomm, five behind Microsoft, did not. Rewritten to sort by
+   `(indexWithinPlatform + 0.5) / tenantCount`, which spreads a platform over
+   the *whole* run no matter when others run dry: the same four tenants now
+   land at 3, 12, 27, 36 (worst gap 9 instead of 3), and no two same-platform
+   companies are adjacent anywhere in the real 38-company cycle.
+
+   **This cannot help Workday or Greenhouse much** — ten and eleven tenants in
+   a 38-company run cannot be more than ~3 apart, by pigeonhole. If either
+   starts refusing on density, that needs a real per-platform delay, not a
+   better sort.
+
+Qualcomm was deliberately **not** acknowledged: a 429 caused by our own
+request pattern is the one failure class this project fixes rather than
+mutes. The next scheduled run tests it.
+
 **Rafael marked link-only instead of pretending three hand-typed jobs are its
 whole listing (2026-09-11).** Rafael's own site lists roughly 400 open
 positions; JobTrail only ever had the three someone typed in by hand through

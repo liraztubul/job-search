@@ -22,9 +22,10 @@ last known state, matches new postings against saved search profiles, and
 serves a web UI for filtering the results and tracking which jobs you've
 applied to.
 
-Fifteen adapters covering Amazon, Apple, Google, Mobileye, Elbit Systems, IBM,
-NVIDIA, Check Point and more — see [Layout](#layout) for how a new one gets
-added.
+Sixteen adapters cover 40 companies — Amazon, Apple, Google, Intel, Mobileye,
+Elbit Systems, NVIDIA, Check Point and more. Eleven of those companies needed
+no code at all: they run on a platform (Greenhouse, Workday, Ashby) an adapter
+already speaks. See [Layout](#layout) for how a new one gets added.
 
 ## What this demonstrates
 
@@ -42,13 +43,6 @@ added.
 - **Dead ends are written down, not hidden** — see `CLAUDE.md`'s running log of
   companies that turned out to be bot-protected, tokenless, or simply not
   worth automating, and why.
-
-## Screenshots
-
-![Job search page showing filterable results for open positions](docs/search.png)
-![Application tracker dashboard showing saved jobs by status](docs/tracker.png)
-
-*(Not yet in the repo — see "Adding the screenshots" below.)*
 
 ## Quick start
 
@@ -121,10 +115,12 @@ what a new adapter's mapping needs. `sniff.js` needs Playwright:
 npm install --save-dev playwright && npx playwright install chromium
 ```
 
-Still open: Microsoft, Meta, SAP and a handful of others documented as
-in-progress or dead ends in `CLAUDE.md`. Rafael sits behind Reblaze bot
-protection and is tracked through the `manual` adapter instead
-(`tools/add-job.js`) rather than scraped.
+Still open: Meta, SAP, Cisco and a handful of others, documented as
+in-progress or dead ends in `CLAUDE.md` — including *why* each one is a dead
+end, which is usually more useful than the fact that it is. Rafael sits behind
+Reblaze bot protection; rather than pretend otherwise, it's flagged link-only
+(`tools/set-link-only.js`) and the site links out to its own careers page
+instead of showing a handful of jobs that would imply completeness.
 
 ## Accounts, and running it beyond this machine
 
@@ -169,27 +165,24 @@ reach:
   Resetting a password signs out every other session for that account
   (`session_epoch` in `server/web/middleware/auth.js`).
 
-## Not built yet
+## Known limitations
 
-- Notifications — matches are printed to the console; the outbox design is in
-  `docs/ARCHITECTURE.md` §4.5
-- Scheduling — one manual run, no cron yet
-- The sanity gate (§4.2) and closure detection (§4.3)
-- `ComeetAdapter` has never been checked against a live response
-- A privacy policy — required before real strangers' data is held at scale
+- **Notifications are console-only.** Matches are printed, not sent; the
+  queue-and-drain design is in `docs/ARCHITECTURE.md` §4.5.
+- **Some sites refuse the cloud scraper but serve a home connection.** Check
+  Point and Keter return a `403` or a block page to the scheduled run's
+  datacenter address and the same endpoint happily from a laptop. That is a
+  site saying no, so it isn't engineered around; the failure is classified
+  `blocked`, acknowledged with `tools/acknowledge-issue.js`, and the
+  acknowledgment clears itself the moment the company succeeds again. Two
+  others (Microsoft, NVIDIA) were the scraper's own fault — four Eightfold
+  tenants fetched back to back looked like an attack — and were fixed by
+  `server/domain/scrapeOrder.js` instead of acknowledged.
+- **Rafael is listed but not collected.** Its site is behind Reblaze bot
+  protection, so the company links out to its own careers page instead of
+  showing a partial list that would imply completeness.
+- **Company search is English-only.** Typing a Hebrew company name into the
+  picker matches nothing, silently — a real usability gap on a Hebrew site.
 
-See `docs/ROADMAP.md` for the fuller list of known limitations and their
-intended fixes.
+`docs/ROADMAP.md` has the fuller list and the intended fix for each.
 
-## Adding the screenshots
-
-The two images above aren't in the repo yet. To add them:
-
-1. Run the app locally (`node server/web/server.js`) with some real job data
-   (`node server/main.js` first) and an application or two tracked.
-2. Save a screenshot of the job search page (`index.html`) as `docs/search.png`.
-3. Save a screenshot of the application tracker (`tracker.html`) as
-   `docs/tracker.png`.
-
-The `docs/` folder and the `![...]` references above are already in place —
-dropping the two files in is the only step left.

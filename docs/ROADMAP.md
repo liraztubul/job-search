@@ -51,11 +51,16 @@ was joining in *whichever* account's application status happened to match,
 a real cross-account leak of exactly the kind the tenancy guard (ADR-007)
 exists to prevent. `tests/jobs.test.js` covers it directly now.
 
-**A bug found afterward, not yet fixed:** requesting a page beyond
-`totalPages` currently returns the last page's rows instead of an empty list,
-so clicking "next" at the end silently repeats content instead of saying
-there's nothing more. The fix is to sanitize the page number and never
-substitute a different page's rows for the one that was actually requested.
+**A bug found afterward, since fixed:** requesting a page beyond `totalPages`
+used to return the last page's rows instead of an empty list, so clicking
+"next" at the end silently repeated content. `page` is now sanitized (a real
+integer, minimum 1) but never *substituted* — see
+`server/services/jobSearchService.js`. Page 400 of a 9-page result answers
+honestly with `jobs: []` and the true `totalMatching`/`totalPages`, and the
+client shows a distinct "nothing on this page — N total matches, here's page
+1" state, separate from "nothing matches this filter at all". Clamping to the
+last page would have been the smaller diff and the worse answer: it makes the
+response lie about which page it is.
 
 ---
 
@@ -261,18 +266,28 @@ it's wired straight into UI code without a test.
 
 ---
 
-## Closure detection
+## Closure detection — done
 
-All 2,128 jobs are currently marked open, because nothing ever sets
-`is_still_open = 0`. Left long enough, users will click through to dead
-postings and stop trusting the list.
+**Status: fixed.** Nothing ever set `is_still_open = 0`, so every job stayed
+open forever and the list slowly filled with dead postings. `closeMissingJobs`
+(`server/data/jobs.js`) now marks any job not seen in the current run as
+closed with a `closed_at` timestamp — but **only after a run that passed the
+sanity gate**, which is the whole safety property: a broken adapter returning
+`[]` would otherwise close an entire company's listings in one cycle, and the
+gate refusing a suspicious drop is what stands between a parse error and
+wiping 400 real jobs.
 
-**Planned:** after a scrape that passes the sanity gate above, mark any job
-for that company not seen in the current run as closed, with a `closed_at`
-timestamp — only after a *healthy* run, since a broken adapter returning `[]`
-must never be allowed to close an entire company's listings. Closed jobs
-should show greyed out with a "no longer posted" tag rather than disappear,
-so a tracked application doesn't silently vanish from the dashboard.
+It is demonstrably working rather than merely wired up: 1,191 jobs are closed
+against 2,277 open. The clearest case is Palo Alto Networks, whose count had
+been stuck at a stale 318 — the gate refused the drop to ~147 once, the next
+cycle returned a closely matching number, the gate accepted it as real, and
+214 postings that no longer existed were closed.
+
+Closed jobs are excluded from search but never deleted, so a tracked
+application doesn't vanish from the dashboard — it stays, greyed out
+(`.job.is-closed`) and tagged **המשרה נסגרה**, which is the honest outcome:
+you applied to something that has since been taken down, and hiding that
+would leave you waiting for an answer that isn't coming.
 
 ---
 
