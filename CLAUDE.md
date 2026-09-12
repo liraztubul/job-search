@@ -108,7 +108,10 @@ node tools/reset-password.js --email x --password y   # owner's escape hatch whe
 node tools/add-company.js         # list adapters + watched companies
 node tools/add-company.js --name "Amazon Israel" --type amazon --country ISR
 node tools/doctor.js               # why is a job not showing up?
-node tools/add-job.js --file rafael --title "…" --url "…"   # blocked companies
+node tools/add-job.js --file rafael --title "Software Engineer" --url "https://career.example-company.com/job/12345"   # blocked companies
+#   ^ write a REAL title and URL. This line used to read --title "…" --url "…",
+#     someone ran it verbatim, and "…" became a live job's apply link.
+#     add-job.js now rejects placeholder URLs, but don't re-introduce one here.
 node tools/probe.js "<url>"       # inspect an endpoint before writing an adapter
 node tools/probe-all.js           # probe every company that has no adapter yet
 node tools/probe-all.js elbit     # ...or just one
@@ -180,6 +183,21 @@ Guessing at field names is the main way this project wastes an hour.
   "the fix didn't work". Three rounds were lost to this. After pushing a fix,
   always **Run workflow**, and check the commit SHA on the run page matches
   what you pushed.
+- **A `tools/` script changes whichever database the environment points at —
+  and your shell usually points at the local file.** `set-link-only.js`,
+  `acknowledge-issue.js`, `set-company-active.js` and friends all go through
+  `server/data/connection.js`, so with no `TURSO_DATABASE_URL` exported they
+  edit `jobtrail.db` and report cheerful success, while **production is
+  unchanged**. This has now bitten twice: IBM stayed listed live after being
+  deactivated locally, and Rafael kept serving three placeholder jobs on the
+  live site for a week after `set-link-only.js` had "worked". Nothing warns
+  you, because from the tool's point of view nothing went wrong. After running
+  any tool that changes a company's presentation, re-run it in a shell with
+  the Turso credentials exported, or check the live site — a local success is
+  not evidence about production. (Note the tension with the `JT_DB_PATH`
+  precedence fix above: that one exists because ambient Turso credentials
+  wrongly beat a deliberate local setting. Both are the same lesson from
+  opposite sides — **know which database you are actually talking to**.)
 - `libsql` is **synchronous**. Don't `await` db calls.
 - It's also a **native module** — `node_modules` is not portable between
   Windows and Linux. Install on the machine that runs it.

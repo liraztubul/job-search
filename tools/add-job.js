@@ -50,6 +50,56 @@ function slugId(title) {
     return `${slug}-${today()}`;
 }
 
+/**
+ * The apply URL is the only part of a manual job a *visitor* actually uses,
+ * and until now it was stored with `String(args.url)` — presence checked,
+ * validity never.
+ *
+ * That is not a hypothetical. This project's own CLAUDE.md documents the
+ * command as `node tools/add-job.js --file rafael --title "…" --url "…"`,
+ * with an ellipsis standing in for the real value. Running that line
+ * literally wrote a job whose apply URL *is* the character `…`, plus a
+ * second one reading `https://career.rafael.co.il/...`. Both were accepted,
+ * saved, scraped into `job_snapshots`, and served to real visitors, who
+ * clicked a job title and landed on an error page. **The documentation's
+ * placeholder became production data**, and nothing in between was in a
+ * position to notice.
+ *
+ * So: parse it as a URL, require http(s), and reject the placeholder shapes
+ * specifically — a bare `…`, a path ending in `...`, or an obvious
+ * REPLACE-ME. The generic parse catches most of it; the explicit checks
+ * catch `https://example.com/...`, which is a perfectly valid URL and still
+ * unmistakably nobody's real posting.
+ */
+function requireRealApplyUrl(raw) {
+    const value = String(raw).trim();
+
+    let parsed;
+    try {
+        parsed = new URL(value);
+    } catch {
+        console.error(`\n--url is not a URL: ${JSON.stringify(value)}`);
+        console.error('A manual job needs the real link a person would apply through,');
+        console.error('e.g. https://career.rafael.co.il/job/12345 — not a placeholder.\n');
+        process.exit(1);
+    }
+
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        console.error(`\n--url must be http(s), got ${parsed.protocol}\n`);
+        process.exit(1);
+    }
+
+    // Placeholders that survive URL parsing. `…` alone does not reach here
+    // (it fails to parse), but a real host with an unfilled path does.
+    if (/(\.\.\.|…|replace[-_ ]?me|your[-_ ]?url|example\.com)/i.test(value)) {
+        console.error(`\n--url still looks like a placeholder: ${JSON.stringify(value)}`);
+        console.error('Copy the actual posting link from the company\'s careers page.\n');
+        process.exit(1);
+    }
+
+    return value;
+}
+
 function usage() {
     console.log(`
 Add one job to a manual list.
@@ -105,6 +155,7 @@ function main() {
         process.exit(1);
     }
 
+    const applyUrl = requireRealApplyUrl(args.url);
     const externalId = String(args.id || slugId(args.title));
 
     if (rows.some((row) => String(row.externalId) === externalId)) {
@@ -116,7 +167,7 @@ function main() {
     const entry = {
         externalId,
         title: String(args.title),
-        applyUrl: String(args.url),
+        applyUrl,
         location: args.location ? String(args.location) : '',
         department: args.department ? String(args.department) : null,
         employmentType: args.type ? String(args.type) : null,
