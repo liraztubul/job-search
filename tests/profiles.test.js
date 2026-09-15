@@ -199,21 +199,26 @@ test('GET /api/profiles as B never lists A\'s profiles, and vice versa', async (
     assert.ok(listB.body.profiles.every((p) => p.name !== 'A only'));
 });
 
-test('PUT /api/profiles/:id as B against A\'s profile fails, and A\'s data is untouched', async () => {
+test('PUT /api/profiles/:id as B against A\'s profile is a 404, and A\'s data is untouched', async () => {
     const cookieA = sessionCookieFor(userA);
     const cookieB = sessionCookieFor(userB);
 
     const created = await call('POST', '/api/profiles', { name: 'Original name', keywords: 'x' }, cookieA);
     const id = created.body.profile.id;
 
+    // The request itself was well-formed — the resource just isn't B's.
+    // "no such profile", not "no permission": those two cases must be
+    // indistinguishable from the outside (see the byte-identical-body test
+    // below), so this can never confirm to B that the id belongs to someone.
     const hijack = await call('PUT', `/api/profiles/${id}`, { name: 'Hijacked' }, cookieB);
-    assert.equal(hijack.statusCode, 400);
+    assert.equal(hijack.statusCode, 404);
+    assert.equal(hijack.body.error, 'no such profile');
 
     const stillA = await call('GET', '/api/profiles', null, cookieA);
     assert.ok(stillA.body.profiles.some((p) => p.id === id && p.name === 'Original name'));
 });
 
-test('DELETE /api/profiles/:id as B against A\'s profile fails, and A\'s profile survives', async () => {
+test('DELETE /api/profiles/:id as B against A\'s profile is a 404, and A\'s profile survives', async () => {
     const cookieA = sessionCookieFor(userA);
     const cookieB = sessionCookieFor(userB);
 
@@ -221,10 +226,56 @@ test('DELETE /api/profiles/:id as B against A\'s profile fails, and A\'s profile
     const id = created.body.profile.id;
 
     const hijack = await call('DELETE', `/api/profiles/${id}`, null, cookieB);
-    assert.equal(hijack.statusCode, 400);
+    assert.equal(hijack.statusCode, 404);
+    assert.equal(hijack.body.error, 'no such profile');
 
     const stillA = await call('GET', '/api/profiles', null, cookieA);
     assert.ok(stillA.body.profiles.some((p) => p.id === id));
+});
+
+test('PUT/DELETE against a nonexistent id are also 404, with the identical body a cross-account attempt gets', async () => {
+    const cookieA = sessionCookieFor(userA);
+    const cookieB = sessionCookieFor(userB);
+
+    const created = await call('POST', '/api/profiles', { name: 'Byte-identical check', keywords: 'x' }, cookieA);
+    const realId = created.body.profile.id;
+    const nonexistentId = realId + 1_000_000;
+
+    const crossAccount = await call('PUT', `/api/profiles/${realId}`, { name: 'x' }, cookieB);
+    const nonexistent = await call('PUT', `/api/profiles/${nonexistentId}`, { name: 'x' }, cookieB);
+
+    // Same status, same body — a caller must not be able to tell "this id
+    // belongs to someone else" from "this id doesn't exist" by comparing
+    // responses. If these ever diverge, that's a new way to enumerate ids.
+    assert.equal(crossAccount.statusCode, 404);
+    assert.equal(nonexistent.statusCode, 404);
+    assert.deepEqual(crossAccount.body, nonexistent.body);
+
+    const deleteCrossAccount = await call('DELETE', `/api/profiles/${realId}`, null, cookieB);
+    const deleteNonexistent = await call('DELETE', `/api/profiles/${nonexistentId}`, null, cookieB);
+    assert.equal(deleteCrossAccount.statusCode, 404);
+    assert.equal(deleteNonexistent.statusCode, 404);
+    assert.deepEqual(deleteCrossAccount.body, deleteNonexistent.body);
+});
+
+test('PUT against a malformed (non-numeric) id is a 404 — no route matches it at all', async () => {
+    // /api/profiles/:id only matches \d+ (see PROFILE_ROUTE) — anything else
+    // falls through to "no such endpoint", same as any other unknown path.
+    const cookieA = sessionCookieFor(userA);
+    const res = await call('PUT', '/api/profiles/not-a-number', { name: 'x' }, cookieA);
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error, 'no such endpoint');
+});
+
+test('PUT against id 0 is a 400, not a 404 — a genuinely invalid id, not "not found"', async () => {
+    // \d+ matches "0" (so it reaches the handler, unlike "not-a-number"
+    // above), but 0 is never a real profile id — profileService rejects it
+    // before ever asking the data layer, so this is the "malformed request"
+    // case the 400 stays reserved for.
+    const cookieA = sessionCookieFor(userA);
+    const res = await call('PUT', '/api/profiles/0', { name: 'x' }, cookieA);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'invalid profile id');
 });
 
 test('DELETE /api/profiles/:id as the owner actually removes it', async () => {

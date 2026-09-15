@@ -320,6 +320,19 @@ async function verifyJobHandler({ req, res, jobId }) {
  */
 const PROFILE_ROUTE = /^\/api\/profiles\/(\d+)$/;
 
+/**
+ * "no such profile" covers two different truths — a nonexistent id, and an
+ * id that belongs to someone else — collapsed into one message on purpose
+ * (see profileService.js): a caller must not be able to tell "you don't own
+ * this" from "this doesn't exist" by probing ids. The request itself was
+ * well-formed either way, so the status is 404, not 400. A genuinely
+ * malformed request (bad JSON, a validation failure, a non-numeric id) stays
+ * 400 — same distinction JOB_VERIFY_ROUTE's handler above draws for a job id.
+ */
+function profileStatusFor(error) {
+    return error === 'no such profile' ? 404 : 400;
+}
+
 async function updateProfileHandler({ req, res, userId, profileId }) {
     let payload;
     try {
@@ -331,12 +344,14 @@ async function updateProfileHandler({ req, res, userId, profileId }) {
     const result = profiles.updateProfile(userId, profileId, payload);
     return result.ok
         ? sendJson(res, 200, { profile: result.profile })
-        : sendJson(res, 400, { error: result.error });
+        : sendJson(res, profileStatusFor(result.error), { error: result.error });
 }
 
 function deleteProfileHandler({ res, userId, profileId }) {
     const result = profiles.deleteProfile(userId, profileId);
-    return result.ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { error: result.error });
+    return result.ok
+        ? sendJson(res, 200, { ok: true })
+        : sendJson(res, profileStatusFor(result.error), { error: result.error });
 }
 
 /**

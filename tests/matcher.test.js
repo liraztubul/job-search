@@ -85,11 +85,6 @@ test('experience filter rejects a job at a different level', () => {
     assert.equal(matches(jobWithLevel('Backend Engineer', 'senior'), junior), false);
 });
 
-test('experience filter rejects a job with no known level at all', () => {
-    const junior = { ...backend, experience_filter: 'entry,intern' };
-    assert.equal(matches(jobWithLevel('Backend Engineer', null), junior), false);
-});
-
 test('no experience filter means any level passes', () => {
     assert.equal(matches(jobWithLevel('Backend Engineer', 'senior'), backend), true);
 });
@@ -115,6 +110,32 @@ test('employment filter rejects a job of a different type', () => {
 
 test('no employment filter means any type passes', () => {
     assert.equal(matches(jobWithType('Backend Engineer', 'contract'), backend), true);
+});
+
+// ---------------------------------------------------------------------------
+// Unknown-value policy — deliberate, measured against the real database, not
+// an accident of `|| ''`. See matcher.js's own comment on matches() for the
+// numbers (experience_level unknown on 42.7% of jobs, employment_type on
+// 82.6%, location on 0.4%) and the reasoning: a filter that also excludes
+// every job with no known value for that field hides far more than it
+// filters, once "unknown" is that common. These tests pin the choice
+// (unknown always PASSES a filter) so it can't flip silently.
+// ---------------------------------------------------------------------------
+
+test('a job with no known experience level passes an experience filter', () => {
+    const junior = { ...backend, experience_filter: 'entry,intern' };
+    assert.equal(matches(jobWithLevel('Backend Engineer', null), junior), true);
+});
+
+test('a job with no known employment type passes an employment filter', () => {
+    const fullTimeOnly = { ...backend, employment_filter: 'full-time' };
+    assert.equal(matches(jobWithType('Backend Engineer', null), fullTimeOnly), true);
+});
+
+test('a job with no known location passes a location filter', () => {
+    const haifaOnly = profile('backend', 'Haifa');
+    assert.equal(matches(job('Backend Engineer', null), haifaOnly), true);
+    assert.equal(matches(job('Backend Engineer', ''), haifaOnly), true);
 });
 
 // ---------------------------------------------------------------------------
