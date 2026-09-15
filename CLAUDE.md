@@ -86,8 +86,14 @@ throws without it; `tests/tenancy.test.js` proves it. See ADR-007.
 
 Login rate limiting, password reset and registration email confirmation are
 all built (`server/web/middleware/rateLimit.js`,
-`server/services/verificationService.js`) — but actually sending the mail is a
-separate, optional switch left off by default (`server/services/emailService.js`);
+`server/services/verificationService.js`). Mail can go out through either of
+two providers, whichever is configured — **Gmail over SMTP**
+(`GMAIL_USER` + `GMAIL_APP_PASSWORD`, see `server/services/smtpClient.js`)
+or **Brevo** (`BREVO_API_KEY`), with Gmail preferred when both are set.
+`emailService.isConfigured()` is the single switch the UI reads, so turning
+either on reveals "שכחתי סיסמה" and drops the no-recovery warning with no
+second thing to remember. Sending is still
+a separate, optional switch left off by default (`server/services/emailService.js`);
 `client/login.html` hides the reset entry point and warns plainly at
 registration when it can't be delivered. `tools/reset-password.js` is the
 owner's escape hatch in the meantime. A privacy policy lives at
@@ -198,6 +204,16 @@ Guessing at field names is the main way this project wastes an hour.
   precedence fix above: that one exists because ambient Turso credentials
   wrongly beat a deliberate local setting. Both are the same lesson from
   opposite sides — **know which database you are actually talking to**.)
+- **You cannot send mail from a `@gmail.com` address through a third-party
+  provider and expect it to arrive.** Checked properly on 2026-09-13 rather
+  than assumed: Postmark refuses such senders outright ("can be viewed as
+  email spoofing"), Mailjet warns the mail "may not be delivered at all",
+  and the shared cause is DMARC alignment — mail claiming to be from
+  gmail.com but signed by someone other than Google fails it.
+  `_dmarc.gmail.com` reads `v=DMARC1; p=none; sp=quarantine`, so it is
+  *tolerated* rather than bounced, which in practice means the spam folder.
+  The fix is not a better provider; it is either owning a domain or sending
+  through Google itself — see `server/services/smtpClient.js`.
 - `libsql` is **synchronous**. Don't `await` db calls.
 - It's also a **native module** — `node_modules` is not portable between
   Windows and Linux. Install on the machine that runs it.

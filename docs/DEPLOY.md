@@ -89,6 +89,51 @@ invalidates every session cookie and signs everyone out.
 
 Then **Apply** / **Manual Deploy**.
 
+## Step 5 (optional) — turn on password-reset email
+
+Without this, the site is honest but unforgiving: `client/login.html` hides
+"שכחתי סיסמה" and warns at registration that a forgotten password cannot be
+recovered. `tools/reset-password.js` is your own escape hatch, but a stranger
+has none.
+
+**Use a dedicated Gmail account, not your personal one.** An App Password is
+not scoped to sending — anything holding it can also read that mailbox over
+IMAP. Putting your personal Gmail's App Password into Render's environment
+means a Render compromise is a compromise of your personal email. A throwaway
+account (`something.mailer@gmail.com`) costs five minutes and limits the
+blast radius to a mailbox that holds nothing.
+
+1. Sign in to that account → **2-Step Verification** must be on
+   (App Passwords do not exist without it).
+2. Go to <https://myaccount.google.com/apppasswords>, create one named
+   "JobTrail", and copy the 16 characters.
+3. Add three variables in Render → Environment:
+
+| Variable | Value |
+|---|---|
+| `GMAIL_USER` | `something.mailer@gmail.com` |
+| `GMAIL_APP_PASSWORD` | the 16 characters from step 2 |
+| `JT_MAIL_FROM` | the same address (optional — defaults to `GMAIL_USER`) |
+
+That is all. `emailService.isConfigured()` flips to true, `GET /api/session`
+starts reporting `mailConfigured: true`, and the reset link appears on the
+login page by itself.
+
+**Why Gmail and not an email provider.** Every free provider either wants a
+postal address at signup (Brevo) or refuses to send from a `@gmail.com`
+address (Postmark; Mailjet warns it may not deliver). That refusal is
+correct — such mail fails DMARC alignment and lands in spam. Sending through
+Google means Google signs it, so it passes and reaches the inbox.
+
+**Why an App Password and not OAuth.** An OAuth consent screen left in
+"Testing" expires its refresh token every 7 days, and moving it to
+production with a Gmail scope pulls in Google's verification process. A
+reset flow that breaks every Monday is worse than one that was never built.
+
+**If mail stops arriving,** revoke and regenerate the App Password — that is
+the whole recovery procedure, and it affects nothing else. Gmail allows
+~2,000 messages a day, which this app will not approach.
+
 ## What to check once it is live
 
 - The log says `Using hosted database at libsql://...` and then a job count

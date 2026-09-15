@@ -41,13 +41,63 @@
  * no account at any provider, and how local development is meant to work.
  */
 
+const { sendMail } = require('./smtpClient');
+
 const ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
-const isConfigured = () => Boolean(process.env.BREVO_API_KEY);
+/**
+ * SECOND PROVIDER: Gmail over SMTP, added 2026-09-13.
+ *
+ * Brevo above is still supported and still preferred *if a custom domain
+ * ever exists*. It is not currently usable here for one non-technical
+ * reason: its signup requires a postal address, which the owner declined to
+ * give. Re-checking the alternatives found that this is not a Brevo quirk —
+ * Postmark refuses `@gmail.com` senders outright ("can be viewed as email
+ * spoofing"), and Mailjet warns such mail "may not be delivered at all".
+ * The shared cause is DMARC alignment: mail sent from a gmail.com address by
+ * anyone other than Google fails it. `_dmarc.gmail.com` is currently
+ * `p=none`, so it is tolerated rather than rejected — which in practice means
+ * the spam folder, and a password reset in the spam folder is barely a
+ * password reset.
+ *
+ * Sending through Gmail itself is the one free path with none of that: the
+ * message really does originate at Google, DKIM-signed by Google, so
+ * alignment holds and it reaches the inbox.
+ *
+ * See server/services/smtpClient.js for why this is an App Password rather
+ * than OAuth, and why a hand-written client does not break the
+ * one-dependency rule.
+ */
+const gmailConfigured = () => Boolean(process.env.GMAIL_APP_PASSWORD && process.env.GMAIL_USER);
+const brevoConfigured = () => Boolean(process.env.BREVO_API_KEY);
+
+/**
+ * What `client/login.html` reads (through GET /api/session's mailConfigured)
+ * to decide whether to show "שכחתי סיסמה" or the "there is no recovery"
+ * warning. Either provider being configured is enough — this stays one
+ * switch, so turning mail on never needs a second thing to remember.
+ */
+const isConfigured = () => gmailConfigured() || brevoConfigured();
 
 async function send({ to, subject, text, html, consoleLabel }) {
     if (!isConfigured()) {
-        console.log(`\n[emailService] no BREVO_API_KEY set — ${consoleLabel}:\n${text}\n`);
+        console.log(`\n[emailService] no mail provider configured — ${consoleLabel}:\n${text}\n`);
+        return;
+    }
+
+    // Gmail first when both are set: it is the one that actually reaches an
+    // inbox from a gmail.com sender, per the note above.
+    if (gmailConfigured()) {
+        await sendMail({
+            user: process.env.GMAIL_USER,
+            pass: process.env.GMAIL_APP_PASSWORD,
+            from: process.env.JT_MAIL_FROM || process.env.GMAIL_USER,
+            fromName: 'JobTrail',
+            to,
+            subject,
+            text,
+            html,
+        });
         return;
     }
 
