@@ -24,18 +24,49 @@ const LOCATION_NOISE_RE =
 // Hebrew display labels live in client/js/ui.js (HEBREW.location), same split
 // as HEBREW.experience/employment/status: value here, label there.
 const LOCATION_CANONICAL = [
-    { pattern: /(?:תל\s*אביב|Tel\s*Aviv|TelAviv|Tel-Aviv)/i, value: 'Tel Aviv' },
+    // \bTLV\b: the colloquial shorthand for Tel Aviv in Israeli tech job posts
+    // (Lemonade's Ashby board labels every Tel Aviv job just "TLV" — see
+    // docs/ROADMAP.md's location audit). Word-boundaried since it's a bare
+    // three-letter token, unlike the longer names below that are safe as a
+    // plain substring match.
+    { pattern: /(?:תל\s*אביב|Tel\s*Aviv|TelAviv|Tel-Aviv|\bTLV\b)/i, value: 'Tel Aviv' },
     { pattern: /(?:חיפה|Haifa)/i, value: 'Haifa' },
     { pattern: /(?:ירושלים|Jerusalem)/i, value: 'Jerusalem' },
     { pattern: /(?:רמת\s*גן|Ramat\s*Gan)/i, value: 'Ramat Gan' },
     { pattern: /(?:נתניה|Netanya)/i, value: 'Netanya' },
     { pattern: /(?:הרצליה|Herzliya)/i, value: 'Herzliya' },
     { pattern: /(?:באר\s*שבע|Be[']?er\s*Sheva|Beer\s*Sheva)/i, value: 'Beer Sheva' },
-    { pattern: /(?:פתח\s*תקווה|Petah\s*Tikva)/i, value: 'Petah Tikva' },
-    { pattern: /(?:יקנעם|Yokneam)/i, value: 'Yokneam' },
+    // Petach (with a 'c') is a real, common alternate transliteration — PANW's
+    // own Workday feed spells it that way ("Office - Israel - CyberArk Petach
+    // Tikva"), and the old pattern (Petah only) silently dropped all 134 of
+    // those jobs from the location filter. See docs/ROADMAP.md.
+    { pattern: /(?:פתח\s*תקווה|Peta(?:h|ch)\s*Tikva)/i, value: 'Petah Tikva' },
+    // Yoqneam (with a 'q') is another real alternate spelling, same reasoning.
+    { pattern: /(?:יקנעם|Yo[kq]neam)/i, value: 'Yokneam' },
     { pattern: /(?:רעננה|Ra['’]?anana)/i, value: 'Raanana' },
     { pattern: /(?:תל\s*חי|Tel\s*Hai)/i, value: 'Tel Hai' },
     { pattern: /(?:מודיעין|Modi['’]?in)/i, value: "Modi'in" },
+    // Northern towns added together (docs/ROADMAP.md's location audit) — none
+    // were previously recognized at all, so any job listed under one of these
+    // was invisible to every location filter. "אלון תבור" (Alon Tabor) is the
+    // industrial park adjoining Migdal Ha'emek, not a separate town of its
+    // own — 74 real jobs used exactly that spelling with no other city name
+    // present, confirmed against job_snapshots.
+    { pattern: /(?:מגדל\s*העמק|אלון\s*תבור|Migdal\s*Ha['’]?[Ee]mek|Alon\s*Tabor)/i, value: "Migdal Ha'emek" },
+    { pattern: /(?:כרמיאל|Karmiel|Carmiel)/i, value: 'Karmiel' },
+    { pattern: /(?:נשר|Nesher)/i, value: 'Nesher' },
+    { pattern: /(?:טירת\s*כרמל|Tirat\s*(?:Ha)?Carmel)/i, value: 'Tirat Carmel' },
+    { pattern: /(?:קרית\s*אתא|קריית\s*אתא|Kir?yat\s*Ata)/i, value: 'Kiryat Ata' },
+    { pattern: /(?:קרית\s*ביאליק|קריית\s*ביאליק|Kir?yat\s*Bialik)/i, value: 'Kiryat Bialik' },
+    { pattern: /(?:קרית\s*מוצקין|קריית\s*מוצקין|Kir?yat\s*Motzkin)/i, value: 'Kiryat Motzkin' },
+    { pattern: /(?:נהריה|Nahariy?a)/i, value: 'Nahariya' },
+    // "Akko" only, not "Acre" — Acre is also an ordinary English word (a unit
+    // of land), and guessing it in would risk matching something that isn't
+    // this city at all. See docs/ROADMAP.md's "do not guess" note.
+    { pattern: /(?:עכו|\bAkko\b)/i, value: 'Akko' },
+    { pattern: /(?:עפולה|Afula)/i, value: 'Afula' },
+    { pattern: /(?:קיסריה|Caesarea)/i, value: 'Caesarea' },
+    { pattern: /(?:זכרון\s*יעקב|זיכרון\s*יעקב|Zi[kc]hron\s*Ya['’]?akov)/i, value: "Zikhron Ya'akov" },
     { pattern: /^(?:North|Northern|צפון)$/i, value: 'North' },
     { pattern: /^(?:South|Southern|דרום)$/i, value: 'South' },
     { pattern: /^(?:Center|Central|Merkaz|מרכז)$/i, value: 'Center' },
