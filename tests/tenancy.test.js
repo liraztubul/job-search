@@ -81,3 +81,21 @@ test('deleteUserAccount demands a user', () => {
         assert.throws(() => users.deleteUserAccount(bad), /requireUser/, `accepted ${JSON.stringify(bad)}`);
     }
 });
+
+test('every search-profile repository function demands a user', () => {
+    let profiles;
+    try {
+        profiles = require('../server/data/profiles');
+    } catch {
+        return; // native module unavailable in this environment
+    }
+
+    // getActiveProfiles() is deliberately exempt — it's the scrape cycle's
+    // system-wide read, never exposed to a route. Every function a route can
+    // reach must demand a user.
+    assert.throws(() => profiles.listProfiles(), /requireUser/);
+    assert.throws(() => profiles.getProfile(undefined, 1), /requireUser/);
+    assert.throws(() => profiles.addSearchProfile({ name: 'x', keywords: 'y' }), /requireUser/);
+    assert.throws(() => profiles.updateProfile(undefined, 1, { name: 'x' }), /requireUser/);
+    assert.throws(() => profiles.deleteProfile(undefined, 1), /requireUser/);
+});

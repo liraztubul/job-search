@@ -69,6 +69,10 @@ const MIGRATIONS = {
         // schema.sql. Set via tools/set-link-only.js.
         ['link_only_reason', 'TEXT'],
     ],
+    // Added once search profiles became editable from the browser (see
+    // docs/ROADMAP.md's "Managing everything from the browser") — existing
+    // databases created before that need this column added explicitly.
+    search_profiles: [['employment_filter', 'TEXT']],
 };
 
 /** Adds a column only when it is absent, so running it repeatedly is harmless. */

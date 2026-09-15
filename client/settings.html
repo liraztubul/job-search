@@ -25,7 +25,61 @@
   <div id="account-slot"><a class="btn" href="login.html">התחברות</a></div>
 </header>
 
-<main style="max-width:32rem">
+<main style="max-width:40rem">
+  <section class="card" id="profiles-card">
+    <h2 style="margin-top:0">פרופילי חיפוש</h2>
+    <p>פרופיל חיפוש הוא ההגדרה של מה שאת מחפשת — מילות מפתח, מיקום, היקף
+      משרה ורמת ניסיון. JobTrail משתמש בו כדי לסמן אילו משרות רלוונטיות
+      אלייך ומה חדש מבחינתך.</p>
+
+    <p class="results-note" id="profiles-note" role="status" aria-live="polite"></p>
+    <ul class="jobs" id="profiles-list"></ul>
+
+    <div class="actions" style="margin-top:1rem">
+      <button type="button" class="btn primary" id="new-profile-btn">פרופיל חדש +</button>
+    </div>
+
+    <form id="profile-form" class="card" style="margin:1rem 0 0" hidden>
+      <h3 id="pf-heading" style="margin-top:0">פרופיל חדש</h3>
+      <input type="hidden" id="pf-id">
+
+      <div class="field">
+        <label for="pf-name">שם הפרופיל</label>
+        <input type="text" id="pf-name" required>
+      </div>
+
+      <div class="field" style="margin-top:.75rem">
+        <label for="pf-keywords">מילות מפתח (מופרדות בפסיק)</label>
+        <input type="text" id="pf-keywords" class="ltr" required placeholder="backend, python, node">
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="pf-employment">היקף משרה</label>
+          <select id="pf-employment"><option value="">כל ההיקפים</option></select>
+        </div>
+        <div class="field">
+          <label for="pf-experience">רמת ניסיון</label>
+          <select id="pf-experience"><option value="">כל הרמות</option></select>
+        </div>
+        <div class="field multiselect" id="pf-location-field">
+          <span class="field-label" id="pf-location-label">מיקום</span>
+          <details id="pf-location-menu">
+            <summary id="pf-location-summary">כל המיקומים</summary>
+            <div class="multiselect-panel" id="pf-location-options" role="group" aria-labelledby="pf-location-label"></div>
+          </details>
+        </div>
+      </div>
+
+      <p class="results-note" id="pf-error" role="alert" aria-live="assertive" style="min-height:1.5rem"></p>
+
+      <div class="actions" style="margin-top:.5rem">
+        <button type="submit" class="btn primary" id="pf-submit">שמירה</button>
+        <button type="button" class="btn" id="pf-cancel">ביטול</button>
+      </div>
+    </form>
+  </section>
+
   <div class="card">
     <h2 style="margin-top:0">מחיקת חשבון</h2>
     <p>מחיקת החשבון מסירה לצמיתות את כתובת האימייל שלך, הסיסמה, וכל המשרות
@@ -55,6 +109,7 @@
 </footer>
 
 <script src="js/ui.js"></script>
+<script src="js/settings.js"></script>
 <script>
 'use strict';
 

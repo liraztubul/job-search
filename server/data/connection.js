@@ -280,4 +280,54 @@ function cleanupComeetPostedAt() {
 
 cleanupComeetPostedAt();
 
-module.exports = { db, ensureColumn, backfillOwnership, cleanupInvalidPostedAt, cleanupComeetPostedAt };
+/**
+ * `search_profiles.experience_filter` sat unread by `matcher.js` until the
+ * browser CRUD work (docs/ROADMAP.md) made it live and validated against
+ * `domain/vocabulary.js`'s EXPERIENCE_LEVELS — see ARCHITECTURE.md §4.4. A
+ * profile written before that validation existed (this project's own seed
+ * data included one: "student,junior", neither a real level) would now
+ * silently match nothing by experience, which looks identical to "no jobs
+ * fit you" and is a worse failure than the dead column ever was.
+ *
+ * Same shape as cleanupInvalidPostedAt above: keep only the comma-separated
+ * values that are still valid, drop the rest, clear the column entirely if
+ * nothing survives. Safe to re-run — a no-op once every row is clean.
+ */
+function cleanupInvalidExperienceFilters() {
+    const { EXPERIENCE_LEVELS } = require('../domain/vocabulary');
+    const validLevels = new Set(EXPERIENCE_LEVELS);
+
+    const rows = db.prepare('SELECT id, experience_filter FROM search_profiles WHERE experience_filter IS NOT NULL').all();
+    const update = db.prepare('UPDATE search_profiles SET experience_filter = ? WHERE id = ?');
+    let cleaned = 0;
+
+    for (const row of rows) {
+        const kept = row.experience_filter
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) => validLevels.has(v));
+        const next = kept.length ? kept.join(',') : null;
+        if (next !== row.experience_filter) {
+            update.run(next, row.id);
+            cleaned += 1;
+        }
+    }
+
+    if (cleaned > 0) {
+        console.log(
+            `Cleared an invalid experience_filter value on ${cleaned} search profile(s) — ` +
+                'matcher.js now enforces the closed vocabulary in domain/vocabulary.js.'
+        );
+    }
+}
+
+cleanupInvalidExperienceFilters();
+
+module.exports = {
+    db,
+    ensureColumn,
+    backfillOwnership,
+    cleanupInvalidPostedAt,
+    cleanupComeetPostedAt,
+    cleanupInvalidExperienceFilters,
+};

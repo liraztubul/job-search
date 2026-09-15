@@ -13,6 +13,7 @@ const auth = require('../middleware/auth');
 const rateLimit = require('../middleware/rateLimit');
 const jobSearch = require('../../services/jobSearchService');
 const applications = require('../../services/applicationService');
+const profiles = require('../../services/profileService');
 const users = require('../../services/userService');
 const verification = require('../../services/verificationService');
 const email = require('../../services/emailService');
@@ -79,6 +80,22 @@ const routes = {
     'GET /api/jobs': ({ res, url, userId }) => sendJson(res, 200, jobSearch.searchJobs(userId, url.searchParams)),
 
     'GET /api/applications': ({ res, userId }) => sendJson(res, 200, applications.listApplications(userId)),
+
+    'GET /api/profiles': ({ res, userId }) => sendJson(res, 200, profiles.listProfiles(userId)),
+
+    'POST /api/profiles': async ({ req, res, userId }) => {
+        let payload;
+        try {
+            payload = await readJson(req);
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+
+        const result = profiles.createProfile(userId, payload);
+        return result.ok
+            ? sendJson(res, 201, { profile: result.profile })
+            : sendJson(res, 400, { error: result.error });
+    },
 
     'POST /api/application': async ({ req, res, userId }) => {
         let payload;
@@ -295,6 +312,34 @@ async function verifyJobHandler({ req, res, jobId }) {
 }
 
 /**
+ * `PUT|DELETE /api/profiles/:id` — the second dynamic route, same reasoning
+ * as JOB_VERIFY_ROUTE above: one regex, not a router dependency. Deliberately
+ * NOT in PUBLIC_ROUTES — a search profile is personal data, so this always
+ * requires a session, and the userId the handler gets is always a real
+ * account's, never GUEST (handleApi refuses the request with 401 first).
+ */
+const PROFILE_ROUTE = /^\/api\/profiles\/(\d+)$/;
+
+async function updateProfileHandler({ req, res, userId, profileId }) {
+    let payload;
+    try {
+        payload = await readJson(req);
+    } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+    }
+
+    const result = profiles.updateProfile(userId, profileId, payload);
+    return result.ok
+        ? sendJson(res, 200, { profile: result.profile })
+        : sendJson(res, 400, { error: result.error });
+}
+
+function deleteProfileHandler({ res, userId, profileId }) {
+    const result = profiles.deleteProfile(userId, profileId);
+    return result.ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { error: result.error });
+}
+
+/**
  * Routes a logged-out visitor may call.
  *
  * The job list is deliberately among them. A search engine cannot log in, so
@@ -336,6 +381,14 @@ async function handleApi(req, res, url) {
             handler = verifyJobHandler;
             routeParams = { jobId: Number(match[1]) };
             isPublic = true; // see JOB_VERIFY_ROUTE's own comment
+        }
+    }
+
+    if (!handler && (req.method === 'PUT' || req.method === 'DELETE')) {
+        const match = url.pathname.match(PROFILE_ROUTE);
+        if (match) {
+            handler = req.method === 'PUT' ? updateProfileHandler : deleteProfileHandler;
+            routeParams = { profileId: Number(match[1]) };
         }
     }
 

@@ -55,6 +55,69 @@ test('keyword miss is rejected even when the location matches', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Location filter — multiple locations (OR), comma-separated like keywords
+// ---------------------------------------------------------------------------
+
+test('a job matches any one of several selected locations', () => {
+    const multi = profile('backend', 'Haifa,Tel Aviv');
+    assert.equal(matches(job('Backend Engineer', 'Tel Aviv'), multi), true);
+    assert.equal(matches(job('Backend Engineer', 'Haifa'), multi), true);
+    assert.equal(matches(job('Backend Engineer', 'Jerusalem'), multi), false);
+});
+
+// ---------------------------------------------------------------------------
+// Experience filter — see ARCHITECTURE.md §4.4, item 3 (was a dead column;
+// now read by matches()).
+// ---------------------------------------------------------------------------
+
+function jobWithLevel(title, experience_level, location = 'Haifa') {
+    return { title, location, experience_level };
+}
+
+test('experience filter accepts a job at one of the selected levels', () => {
+    const junior = { ...backend, experience_filter: 'entry,intern' };
+    assert.equal(matches(jobWithLevel('Backend Engineer', 'entry'), junior), true);
+    assert.equal(matches(jobWithLevel('Backend Engineer', 'intern'), junior), true);
+});
+
+test('experience filter rejects a job at a different level', () => {
+    const junior = { ...backend, experience_filter: 'entry,intern' };
+    assert.equal(matches(jobWithLevel('Backend Engineer', 'senior'), junior), false);
+});
+
+test('experience filter rejects a job with no known level at all', () => {
+    const junior = { ...backend, experience_filter: 'entry,intern' };
+    assert.equal(matches(jobWithLevel('Backend Engineer', null), junior), false);
+});
+
+test('no experience filter means any level passes', () => {
+    assert.equal(matches(jobWithLevel('Backend Engineer', 'senior'), backend), true);
+});
+
+// ---------------------------------------------------------------------------
+// Employment filter — same OR/comma shape, added alongside the browser CRUD
+// UI (docs/ROADMAP.md's "Managing everything from the browser").
+// ---------------------------------------------------------------------------
+
+function jobWithType(title, employment_type, location = 'Haifa') {
+    return { title, location, employment_type };
+}
+
+test('employment filter accepts a job of the selected type', () => {
+    const fullTimeOnly = { ...backend, employment_filter: 'full-time' };
+    assert.equal(matches(jobWithType('Backend Engineer', 'full-time'), fullTimeOnly), true);
+});
+
+test('employment filter rejects a job of a different type', () => {
+    const fullTimeOnly = { ...backend, employment_filter: 'full-time' };
+    assert.equal(matches(jobWithType('Backend Engineer', 'internship'), fullTimeOnly), false);
+});
+
+test('no employment filter means any type passes', () => {
+    assert.equal(matches(jobWithType('Backend Engineer', 'contract'), backend), true);
+});
+
+// ---------------------------------------------------------------------------
 // Known gaps — see ARCHITECTURE.md §4.4
 //
 // These describe what the matcher SHOULD do, and currently does not. They run
@@ -70,12 +133,6 @@ test('should support excluding senior roles', { todo: true }, () => {
     const junior = { ...backend, exclude_keywords: 'senior,staff,principal,manager' };
     assert.equal(matches(job('Senior Backend Architect'), junior), false);
     assert.equal(matches(job('Junior Backend Engineer'), junior), true);
-});
-
-test('should honour experience_filter (dead column today)', { todo: true }, () => {
-    const student = { ...backend, experience_filter: 'student,junior' };
-    assert.equal(matches(job('Student Backend Position'), student), true);
-    assert.equal(matches(job('Backend Team Lead'), student), false);
 });
 
 // ---------------------------------------------------------------------------

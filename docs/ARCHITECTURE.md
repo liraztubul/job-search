@@ -145,7 +145,7 @@ Known weaknesses, in the order they'll bite you:
 
 1. `"backend"` misses `"Back-End Developer"` and `"Server Side Engineer"` → normalize (strip hyphens, collapse whitespace) + keep a small synonym map.
 2. No negative keywords → you'll get `"Senior Staff Backend Architect"`. Add `exclude_keywords` to `search_profiles`.
-3. `experience_filter` is in the schema but **never read by `matcher.js`**. Dead column today.
+3. ~~`experience_filter` is in the schema but never read by `matcher.js`. Dead column today.~~ Fixed: `matches()` now reads it, comma-separated same as `location_filter` — a job matches when its `experience_level` is one of the selected values (OR), or always when the filter is empty.
 4. Title-only matching → the seniority signal often lives in the description, not the title.
 
 Upgrade path if it annoys you: embed job titles + your profile with a small local model and

@@ -146,14 +146,21 @@ CREATE TABLE IF NOT EXISTS applications (
     UNIQUE(user_id, job_snapshot_id)
 );
 
--- An account's saved search profiles (filters)
+-- An account's saved search profiles (filters). Every *_filter column is
+-- comma-separated and OR'd (server/domain/matcher.js's matches()) — a job
+-- matching ANY listed value passes, same shape as `keywords`. NULL/empty
+-- means "any". Values must come from the closed vocabularies in
+-- server/domain/vocabulary.js (employment_filter, experience_filter) and the
+-- canonical city list in server/domain/locations.js (location_filter) — see
+-- server/services/profileService.js, the only place that validates them.
 CREATE TABLE IF NOT EXISTS search_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     name TEXT NOT NULL,
     keywords TEXT NOT NULL,        -- comma-separated, e.g. "backend,python,node"
-    location_filter TEXT,          -- e.g. "Haifa" or NULL for any
-    experience_filter TEXT,        -- e.g. "student,junior"
+    location_filter TEXT,          -- e.g. "Haifa" or "Haifa,Tel Aviv" or NULL for any
+    experience_filter TEXT,        -- e.g. "entry" or "entry,intern" or NULL for any
+    employment_filter TEXT,        -- e.g. "full-time" or NULL for any
     is_active INTEGER DEFAULT 1
 );
 

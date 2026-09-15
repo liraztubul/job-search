@@ -24,11 +24,14 @@ db.addCompany({
 
 // Start wide. A narrow filter makes an empty result meaningless — you can't
 // tell "no matches yet" apart from "my keywords are wrong".
+// userId: 1 — the same "no auth = account 1" convention web/middleware/auth.js
+// uses for every request while JT_SESSION_SECRET is unset.
 db.addSearchProfile({
+    userId: 1,
     name: 'Software roles in Israel',
     keywords: 'software,backend,frontend,full stack,developer,engineer,student',
     locationFilter: null,
-    experienceFilter: 'student,junior',
+    experienceFilter: 'entry,intern',
 });
 
 console.log(`Seeded ${db.listCompanies().length} company, ${db.getActiveProfiles().length} search profile.`);

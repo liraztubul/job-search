@@ -130,7 +130,7 @@ main { max-width:1180px; margin:0 auto; padding:1.4rem 1.25rem 4.5rem; }
 }
 .filters fieldset { border:0; margin:0; padding:0; }
 .filters legend { font-size:.94rem; font-weight:650; padding:0 .38rem; margin-inline-start:-.38rem; }
-.filters .grid {
+.filters .grid,.form-grid {
   display:grid; gap:.88rem; margin-top:.75rem;
   grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
 }
