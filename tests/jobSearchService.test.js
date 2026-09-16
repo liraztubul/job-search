@@ -231,3 +231,36 @@ test('a job from a company\'s initial bulk load reports dateSource "unknown" thr
     assert.equal(result.jobs[0].displayDate, null);
     assert.equal(result.jobs[0].isNew, false);
 });
+
+// ---------------------------------------------------------------------------
+// "רק היי-טק" — on by default (docs/ROADMAP.md). A default-on filter that
+// never announces itself is the same bug as the employment/experience gap
+// above, in a new costume — totalWithoutTechFilter is what lets the client
+// say "X מתוך Y" while it's silently narrowing the results.
+// ---------------------------------------------------------------------------
+
+function seedTechMix(companyId) {
+    upsertJobSnapshot(companyId, { externalId: 'eng-1', title: 'Backend Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'eng-2', title: 'Data Scientist', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'sales-1', title: 'Sales Manager', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+}
+
+test('the tech filter is on by default — no ?tech= param at all', () => {
+    const companyId = addCompany({ name: `Tech Default Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    seedTechMix(companyId);
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId) }));
+    assert.equal(result.techOnly, true);
+    assert.equal(result.totalMatching, 2, 'the Sales Manager job must be filtered out by default');
+    assert.equal(result.totalWithoutTechFilter, 3);
+});
+
+test('?tech=0 shows everything, and stops reporting totalWithoutTechFilter', () => {
+    const companyId = addCompany({ name: `Tech Off Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    seedTechMix(companyId);
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId), tech: '0' }));
+    assert.equal(result.techOnly, false);
+    assert.equal(result.totalMatching, 3);
+    assert.equal('totalWithoutTechFilter' in result, false, 'nothing was narrowed, so there is nothing to explain');
+});

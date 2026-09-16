@@ -282,6 +282,9 @@ function buildQuery() {
   add('employment', $('f-employment').value);
   for (const value of selectedLocations()) params.append('location', value);
   add('status', $('f-status').value);
+  // Absent means on (the default) — only an explicit "off" needs to survive
+  // in the URL/request, same reasoning as every other value here.
+  if (!$('f-tech').checked) params.set('tech', '0');
   if (currentPage > 1) params.set('page', String(currentPage));
   return params;
 }
@@ -302,6 +305,7 @@ function readFiltersFromUrl() {
     employment: params.get('employment') || '',
     locations: params.getAll('location'),
     status: params.get('status') || '',
+    tech: params.get('tech') !== '0',
     page: Math.max(1, Math.trunc(Number(params.get('page'))) || 1),
   };
 }
@@ -314,6 +318,7 @@ function applyInitialFilters(initial) {
   $('f-experience').value = initial.experience;
   $('f-employment').value = initial.employment;
   $('f-status').value = initial.status;
+  $('f-tech').checked = initial.tech;
   currentPage = initial.page;
 
   if (initial.locations.length) {
@@ -688,6 +693,29 @@ function renderFilterGapNote({ totalMatching, employmentGap, experienceGap }) {
   $('filter-gap-note').replaceChildren(...lines.map((text) => el('p', { className: 'results-note', textContent: text })));
 }
 
+/**
+ * "מציג משרות היי-טק בלבד (X מתוך Y) · הצג את כל המשרות" — the tech filter
+ * is on by default (server/services/jobSearchService.js), so this is the
+ * part that keeps it from being a SILENT default: the same failure as an
+ * unexplained employment/experience filter (see renderFilterGapNote above),
+ * just quieter about it because nobody clicked anything to cause it.
+ */
+function renderTechFilterNote({ techOnly, totalMatching, totalWithoutTechFilter }) {
+  const note = $('tech-filter-note');
+  const toggleLabel = techOnly ? 'הצג את כל המשרות' : 'הצג רק היי-טק';
+  const toggle = el('button', { type: 'button', className: 'btn-link', textContent: toggleLabel });
+  toggle.addEventListener('click', () => {
+    $('f-tech').checked = !techOnly;
+    resetPageAndLoad();
+  });
+
+  const message = techOnly
+    ? `מוצגות משרות היי-טק בלבד (${totalMatching.toLocaleString('en-US')} מתוך ${totalWithoutTechFilter.toLocaleString('en-US')}) · `
+    : 'מוצגות כל המשרות, כולל שאינן היי-טק · ';
+  note.replaceChildren(message, toggle);
+  note.hidden = false;
+}
+
 async function load() {
   // A link-only company's jobs are already excluded server-side (see
   // server/data/jobs.js's buildJobFilters) — asking the API would just come
@@ -702,18 +730,20 @@ async function load() {
     $('results').replaceChildren(linkOnlyNotice(linkOnlyCompany));
     $('pagination').replaceChildren();
     $('filter-gap-note').replaceChildren();
+    $('tech-filter-note').hidden = true;
     return;
   }
 
-  let jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap;
+  let jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap, techOnly, totalWithoutTechFilter;
   try {
-    ({ jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap } =
+    ({ jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap, techOnly, totalWithoutTechFilter } =
       await fetchJson('/api/jobs?' + buildQuery()));
   } catch {
     $('results-count').textContent = 'לא ניתן לטעון את המשרות';
     $('results').replaceChildren(serverDownPanel());
     $('pagination').replaceChildren();
     $('filter-gap-note').replaceChildren();
+    $('tech-filter-note').hidden = true;
     return;
   }
 
@@ -736,6 +766,7 @@ async function load() {
         ? `${totalMatching.toLocaleString('en-US')} משרות תואמות`
         : `${totalMatching.toLocaleString('en-US')} משרות תואמות · מציג ${formatRange(page, pageSize, jobs.length)}`;
   renderFilterGapNote({ totalMatching, employmentGap, experienceGap });
+  renderTechFilterNote({ techOnly, totalMatching, totalWithoutTechFilter });
   announce('');
 
   if (jobs.length === 0) {
@@ -765,6 +796,7 @@ function resetPageAndLoad() {
 for (const id of ['f-experience', 'f-employment', 'f-status']) {
   $(id).addEventListener('change', resetPageAndLoad);
 }
+$('f-tech').addEventListener('change', resetPageAndLoad);
 $('filters').addEventListener('submit', (event) => { event.preventDefault(); resetPageAndLoad(); });
 $('reset').addEventListener('click', () => {
   $('f-q').value = '';

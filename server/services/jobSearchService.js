@@ -45,6 +45,12 @@ function unknownGap(userId, filters, field) {
  * @returns {{jobs: object[], page: number, pageSize: number, totalMatching: number, totalPages: number}}
  */
 function searchJobs(userId, params) {
+    // "רק היי-טק" (docs/ROADMAP.md) — ON by default; only an explicit
+    // ?tech=0 (the "הצג את כל המשרות" toggle) turns it off. Absent means on,
+    // which is what makes it a real default rather than something a caller
+    // has to opt into.
+    const techOnly = params.get('tech') !== '0';
+
     const filters = {
         companyId: params.get('company') || null,
         employmentType: params.get('employment') || null,
@@ -54,6 +60,7 @@ function searchJobs(userId, params) {
         q: params.get('q') || null,
         status: params.get('status') || null,
         sort: params.get('sort') || null,
+        techOnly,
     };
 
     const totalMatching = data.countJobs(userId, filters);
@@ -85,7 +92,14 @@ function searchJobs(userId, params) {
         locationCanonical: primaryCanonicalLocation(job.location),
     }));
 
-    const result = { jobs: jobsWithFreshness, page, pageSize, totalMatching, totalPages };
+    const result = { jobs: jobsWithFreshness, page, pageSize, totalMatching, totalPages, techOnly };
+
+    // A default-on filter that stays quiet is the same bug as the
+    // employment/experience gap above, in a new costume — the header must
+    // always be able to say what it's doing, not just when a filter happens
+    // to be off the default. totalWithoutTechFilter is what lets the client
+    // say "X מתוך Y" while the filter is on.
+    if (techOnly) result.totalWithoutTechFilter = data.countJobs(userId, { ...filters, techOnly: false });
 
     // Only computed when that filter is actually active — two more queries
     // on every request would be waste for the common case of no filter set.

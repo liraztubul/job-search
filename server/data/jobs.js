@@ -9,6 +9,7 @@
 const { db } = require('./connection');
 const { locationTokens, locationSearchValue, isIsraeliLocation } = require('../domain/locations');
 const { isValidPostedAt } = require('../domain/jobFreshness');
+const { isTechJob } = require('../domain/techFilter');
 // resolveViewer, not requireUser: the job list is public, so a logged-out
 // visitor is an allowed caller here (and only here — see tenancy.js). It still
 // throws on undefined, so a forgotten user id is still a crash.
@@ -43,7 +44,7 @@ function upsertJobSnapshot(companyId, job) {
         db.prepare(
             `UPDATE job_snapshots
                 SET last_seen_at = ?, title = ?, location = ?, location_search = ?, apply_url = ?, job_code = ?,
-                    employment_type = ?, experience_level = ?, department = ?, posted_at = ?,
+                    employment_type = ?, experience_level = ?, department = ?, posted_at = ?, is_tech = ?,
                     is_still_open = 1
               WHERE id = ?`
         ).run(
@@ -57,6 +58,7 @@ function upsertJobSnapshot(companyId, job) {
             job.experienceLevel ?? null,
             job.department ?? null,
             postedAt,
+            isTechJob(job) ? 1 : 0,
             existing.id
         );
         return { isNew: false, id: existing.id };
@@ -67,8 +69,8 @@ function upsertJobSnapshot(companyId, job) {
         .prepare(
             `INSERT INTO job_snapshots
                 (company_id, external_id, title, location, location_search, apply_url, job_code, first_seen_at, last_seen_at,
-                 employment_type, experience_level, department, posted_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                 employment_type, experience_level, department, posted_at, is_tech)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
             companyId,
@@ -83,7 +85,8 @@ function upsertJobSnapshot(companyId, job) {
             job.employmentType ?? null,
             job.experienceLevel ?? null,
             job.department ?? null,
-            postedAt
+            postedAt,
+            isTechJob(job) ? 1 : 0
         );
     return { isNew: true, id: info.lastInsertRowid };
 }
@@ -149,6 +152,7 @@ function upsertJobSnapshots(companyId, jobs) {
         'experience_level',
         'department',
         'posted_at',
+        'is_tech',
     ];
     // Same derivation as tools/push-to-turso.js: SQLite's bound-parameter cap
     // is 999 on older builds; sizing the batch from the column count keeps
@@ -174,6 +178,7 @@ function upsertJobSnapshots(companyId, jobs) {
                 experience_level = excluded.experience_level,
                 department = excluded.department,
                 posted_at = excluded.posted_at,
+                is_tech = excluded.is_tech,
                 is_still_open = 1
         `;
         // first_seen_at is deliberately absent from DO UPDATE SET — it is
@@ -196,6 +201,7 @@ function upsertJobSnapshots(companyId, jobs) {
             job.experienceLevel ?? null,
             job.department ?? null,
             sanitizePostedAt(job.postedAt),
+            isTechJob(job) ? 1 : 0,
         ]);
         db.prepare(sql).run(...params);
     }
@@ -220,6 +226,43 @@ function upsertJobSnapshots(companyId, jobs) {
         });
     }
     return results;
+}
+
+/**
+ * Recomputes `is_tech` for every row from the CURRENT techFilter.js rule —
+ * callable any time that rule changes, so a new classification is one run
+ * across the whole table rather than a migration written by hand (see
+ * schema.sql's comment on the column). Called once from connection.js to
+ * classify rows written before this column existed; safe to call again any
+ * time, including from a REPL or a future tool.
+ *
+ * Batched (project rule: never a per-row loop over a table) — one SELECT for
+ * everything, then CASE-based UPDATEs sized to stay under SQLite's ~999
+ * bound-parameter cap (3 params per changed row: two in the CASE, one in the
+ * IN list).
+ *
+ * @returns {number} how many rows actually changed
+ */
+function backfillIsTech() {
+    const rows = db.prepare('SELECT id, title, department, is_tech FROM job_snapshots').all();
+    const toUpdate = rows
+        .map((row) => ({ id: row.id, next: isTechJob(row) ? 1 : 0, current: row.is_tech }))
+        .filter((row) => row.next !== row.current);
+
+    if (toUpdate.length === 0) return 0;
+
+    const BATCH_SIZE = 300;
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+        const batch = toUpdate.slice(i, i + BATCH_SIZE);
+        const whenClauses = batch.map(() => 'WHEN ? THEN ?').join(' ');
+        const inPlaceholders = batch.map(() => '?').join(', ');
+        db.prepare(`UPDATE job_snapshots SET is_tech = CASE id ${whenClauses} END WHERE id IN (${inPlaceholders})`).run(
+            ...batch.flatMap((r) => [r.id, r.next]),
+            ...batch.map((r) => r.id)
+        );
+    }
+
+    return toUpdate.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +431,11 @@ function buildJobFilters(filters, owner) {
         where.push(filters.status === 'none' ? 'a.status IS NULL' : 'a.status = ?');
         if (filters.status !== 'none') params.push(filters.status);
     }
+    // "רק היי-טק" (docs/ROADMAP.md) — on by default, but that default lives
+    // in jobSearchService.js (which parses the URL), not here: this function
+    // only ever does what `filters.techOnly` explicitly says, same as every
+    // other flag in this file.
+    if (filters.techOnly) where.push('j.is_tech = 1');
     // Closed postings never show in the search results — a card that opens
     // to a dead link on the source site is worse than not listing it at all.
     // Unconditional, not an opt-in filter: closeMissingJobs() (see
@@ -662,4 +710,5 @@ module.exports = {
     closeMissingJobs,
     listOpenExternalIds,
     findJobById,
+    backfillIsTech,
 };

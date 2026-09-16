@@ -44,6 +44,12 @@ const MIGRATIONS = {
         ['job_code', 'TEXT'],
         // Closure detection: NULL means "believed open". See schema.sql.
         ['closed_at', 'TEXT'],
+        // "רק היי-טק" default filter — see schema.sql's comment and
+        // server/domain/techFilter.js. Defaults to 1 (tech) so an existing
+        // database isn't silently narrowed the moment this column appears;
+        // connection.js's backfillIsTech() sweep is what actually classifies
+        // every pre-existing row correctly.
+        ['is_tech', 'INTEGER NOT NULL DEFAULT 1'],
     ],
     // Password reset (session_epoch) and registration email confirmation
     // (email_verified_at) landed after accounts were already live. SQLite

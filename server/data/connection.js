@@ -323,6 +323,45 @@ function cleanupInvalidExperienceFilters() {
 
 cleanupInvalidExperienceFilters();
 
+/**
+ * `job_snapshots.is_tech` defaults to 1 (tech) on ADD COLUMN — SQLite can't
+ * default a new NOT NULL column to a computed value — so every row written
+ * before this column existed needs classifying once. Self-contained here
+ * rather than calling into data/jobs.js's own (equivalent, reusable-by-tools)
+ * backfillIsTech(): jobs.js requires `db` from this file, so requiring jobs.js
+ * from here would be circular — this file's `module.exports` hasn't run yet
+ * at this point in its own execution, so jobs.js would receive `db`
+ * undefined. Both use the same domain/techFilter.js rule, so they can never
+ * disagree on the answer, only on when they run: this sweep fires once, automatically,
+ * the moment the column appears; jobs.js's version is what a tool calls
+ * later if the classification RULE itself changes.
+ */
+function backfillIsTech() {
+    const { isTechJob } = require('../domain/techFilter');
+
+    const rows = db.prepare('SELECT id, title, department, is_tech FROM job_snapshots').all();
+    const toUpdate = rows
+        .map((row) => ({ id: row.id, next: isTechJob(row) ? 1 : 0, current: row.is_tech }))
+        .filter((row) => row.next !== row.current);
+
+    if (toUpdate.length === 0) return;
+
+    const BATCH_SIZE = 300;
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+        const batch = toUpdate.slice(i, i + BATCH_SIZE);
+        const whenClauses = batch.map(() => 'WHEN ? THEN ?').join(' ');
+        const inPlaceholders = batch.map(() => '?').join(', ');
+        db.prepare(`UPDATE job_snapshots SET is_tech = CASE id ${whenClauses} END WHERE id IN (${inPlaceholders})`).run(
+            ...batch.flatMap((r) => [r.id, r.next]),
+            ...batch.map((r) => r.id)
+        );
+    }
+
+    console.log(`Classified is_tech on ${toUpdate.length} job(s) — see server/domain/techFilter.js.`);
+}
+
+backfillIsTech();
+
 module.exports = {
     db,
     ensureColumn,
@@ -330,4 +369,5 @@ module.exports = {
     cleanupInvalidPostedAt,
     cleanupComeetPostedAt,
     cleanupInvalidExperienceFilters,
+    backfillIsTech,
 };

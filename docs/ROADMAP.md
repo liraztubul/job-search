@@ -133,18 +133,24 @@ ADR-007 exists to prevent, now checked for this code path too.
 
 ---
 
-## First-run onboarding
+## First-run onboarding — built, then deliberately removed
 
-A new account currently lands on every job from every watched company, which
-is meaningless to someone who just signed up.
+**Status: not planned, not in progress.** A 3-step wizard (what you're looking
+for, where, experience level) was built exactly as originally specified — a
+modal shown whenever a signed-in account had no search profile, saving through
+the same `POST /api/profiles` Phase 1 built, landing on a pre-filtered search
+with a banner offering to edit or see everything. It worked, was verified live,
+and was then removed at the owner's explicit request: a new account should land
+directly on the normal search page, with nothing to answer before seeing it.
 
-**Planned:** a 3-step wizard shown whenever an account has no search profile —
-what you're looking for (free text + role type), where (multi-select from the
-canonical location list), and experience level. Saving it lands the account on
-a filtered search with a banner offering to edit the profile or see everything
-unfiltered. Done means a new account never sees an unfiltered list before
-choosing something, and reaches a relevant result in under a minute with no
-instructions.
+This is not a gap to fill in later. `client/js/onboarding.js` no longer exists;
+`client/index.html` has no wizard markup. **The feature it would have fed —
+search profiles — is unaffected and stays exactly as built**: `search_profiles`
+CRUD, the settings page, the API, and `matcher.js` are all still there. A
+person who wants a profile creates one from הגדרות, same as before the wizard
+ever existed. If first-run onboarding is wanted again later, this paragraph is
+the note that it was tried, worked, and was pulled for a product reason — not
+a technical one.
 
 ---
 

@@ -18,6 +18,7 @@ const {
     countOpenJobs,
     closeMissingJobs,
     filterOptions,
+    backfillIsTech,
 } = require('../server/data/jobs');
 const { GUEST } = require('../server/data/tenancy');
 
@@ -638,4 +639,66 @@ test("one account's application status never appears on another account's job ro
 
     const theirs = queryJobs(otherUserId, { companyId }).jobs[0];
     assert.equal(theirs.status, 'applied');
+});
+
+// ---------------------------------------------------------------------------
+// "רק היי-טק" (docs/ROADMAP.md) — is_tech is computed and stored at write
+// time (server/domain/techFilter.js), so buildJobFilters can filter on it in
+// SQL like every other field, without fetching every row into JS first.
+// ---------------------------------------------------------------------------
+
+test('upsertJobSnapshot stores is_tech computed from the real classifier, and re-classifies on update', () => {
+    const companyId = addCompany({ name: `Tech Flag Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const { id } = upsertJobSnapshot(companyId, {
+        externalId: 'a', title: 'Sales Manager', location: 'Tel Aviv', applyUrl: 'https://example.com',
+    });
+    assert.equal(db.prepare('SELECT is_tech FROM job_snapshots WHERE id = ?').get(id).is_tech, 0);
+
+    // A posting can be re-tagged on a re-scrape — the stored flag must track it.
+    upsertJobSnapshot(companyId, {
+        externalId: 'a', title: 'Software Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com',
+    });
+    assert.equal(db.prepare('SELECT is_tech FROM job_snapshots WHERE id = ?').get(id).is_tech, 1);
+});
+
+test('upsertJobSnapshots (batched) stores is_tech the same way as the one-at-a-time version', () => {
+    const companyId = addCompany({ name: `Tech Flag Batch Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshots(companyId, [
+        { externalId: 'a', title: 'Backend Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com' },
+        { externalId: 'b', title: 'HR Business Partner', location: 'Tel Aviv', applyUrl: 'https://example.com' },
+    ]);
+    const rows = db.prepare('SELECT external_id, is_tech FROM job_snapshots WHERE company_id = ? ORDER BY external_id').all(companyId);
+    assert.deepEqual(rows, [
+        { external_id: 'a', is_tech: 1 },
+        { external_id: 'b', is_tech: 0 },
+    ]);
+});
+
+test('filters.techOnly restricts to is_tech = 1 and nothing else when active', () => {
+    const companyId = addCompany({ name: `Tech Filter Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'Software Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'b', title: 'Sales Manager', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    assert.equal(countJobs(userId, { companyId, techOnly: true }), 1);
+    assert.equal(countJobs(userId, { companyId, techOnly: false }), 2);
+    assert.equal(countJobs(userId, { companyId }), 2, 'omitting the filter entirely must not narrow anything — the default lives in jobSearchService.js, not here');
+});
+
+test('backfillIsTech classifies rows written before the column existed, and is a no-op once clean', () => {
+    const companyId = addCompany({ name: `Backfill Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    // Simulates a pre-existing row: written directly, bypassing the classifier
+    // upsertJobSnapshot would normally run.
+    db.prepare(
+        `INSERT INTO job_snapshots (company_id, external_id, title, location, apply_url, first_seen_at, last_seen_at, is_tech)
+         VALUES (?, 'legacy', 'Sales Manager', 'Tel Aviv', 'https://example.com', ?, ?, 1)`
+    ).run(companyId, new Date().toISOString(), new Date().toISOString());
+
+    const changed = backfillIsTech();
+    assert.ok(changed >= 1, 'at least the row just inserted should have been reclassified');
+    assert.equal(
+        db.prepare('SELECT is_tech FROM job_snapshots WHERE company_id = ? AND external_id = ?').get(companyId, 'legacy').is_tech,
+        0
+    );
+
+    assert.equal(backfillIsTech(), 0, 'a second run with nothing changed must update nothing');
 });

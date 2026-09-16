@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
     -- this job's external_id was absent from a healthy scrape of its company.
     -- NULL while the job is believed open.
     closed_at TEXT,
+    -- The "רק היי-טק" default filter (server/domain/techFilter.js). Computed
+    -- at write time (upsertJobSnapshot/upsertJobSnapshots) and stored, not
+    -- computed per-request, so it can be filtered on in SQL like every other
+    -- field — see buildJobFilters(). Default 1 (tech): only meaningful for a
+    -- row inserted before this column existed and never re-touched; every
+    -- real write path sets it explicitly. Re-run the backfill in
+    -- server/data/jobs.js (backfillIsTech) whenever the classification rule
+    -- itself changes, so existing rows don't need a hand-written migration.
+    is_tech INTEGER NOT NULL DEFAULT 1,
     UNIQUE(company_id, external_id)
 );
 

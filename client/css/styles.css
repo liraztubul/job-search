@@ -397,40 +397,21 @@ td a:hover { color:var(--accent); }
   padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
 }
 
-/* ----------------------------- onboarding wizard ---------------------------- */
-/* First-run wizard (docs/ROADMAP.md Phase 2): a real modal, not a dismissible
-   toast — skipping it has to be a deliberate click on its own button, so
-   there is deliberately no backdrop-click-to-close or Escape-to-close here. */
-.onboarding-overlay {
-  position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.5);
-  display:flex; align-items:center; justify-content:center; padding:1rem;
+/* ------------------------------- tech-only filter ---------------------------- */
+.tech-only-toggle {
+  display:inline-flex; align-items:center; gap:.44rem;
+  font-size:.94rem; color:var(--text); cursor:pointer;
 }
-/* Otherwise this class's own `display:flex` beats the browser's default
-   `[hidden] { display:none }` at equal specificity — same gotcha as
-   `.field[hidden]` above, same fix. */
-.onboarding-overlay[hidden] { display:none; }
-[data-contrast="high"] .onboarding-overlay { background:#000; }
-.onboarding-card { max-width:32rem; width:100%; max-height:90vh; overflow-y:auto; }
-.onboarding-step-indicator { font-size:.84rem; color:var(--muted); margin:0 0 .38rem; }
-.onboarding-card h2 { margin:0 0 .5rem; font-size:1.19rem; }
-.onboarding-intro { color:var(--muted); font-size:.94rem; margin:0 0 1rem; }
-.onboarding-actions {
-  display:flex; align-items:center; justify-content:space-between;
-  gap:.75rem; flex-wrap:wrap; margin-top:1.25rem;
-}
-.onboarding-nav-buttons { display:flex; gap:.5rem; }
+.tech-only-toggle input { accent-color:var(--accent); margin:0; }
 
-/* The post-wizard "showing jobs matching what you asked for" note — same
-   quiet accent tone as .tag-new / .link-only-notice, information rather
+/* Always visible while the default-on tech filter is narrowing the results —
+   same quiet accent tone as .tag-new / .link-only-notice, information rather
    than a warning. */
-.onboarding-banner {
+.tech-filter-note {
   background:var(--tag-accent-bg); border:1px solid var(--tag-accent-fg);
-  border-radius:8px; padding:.75rem 1rem; margin:0 0 .88rem;
-  display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;
+  border-radius:8px; padding:.63rem .88rem; margin:0 0 .88rem; font-size:.94rem;
 }
-.onboarding-banner[hidden] { display:none; }
-.onboarding-banner p { margin:0; color:var(--text); font-size:.94rem; }
-.onboarding-banner a, .onboarding-banner .btn-link { color:var(--tag-accent-fg); }
+.tech-filter-note .btn-link { color:var(--tag-accent-fg); }
 
 /* --------------------------------- footer --------------------------------- */
 .site-footer { max-width:1180px; margin:0 auto; padding:1.5rem 1.25rem 3rem; text-align:center; }
