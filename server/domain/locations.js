@@ -115,10 +115,46 @@ function locationSearchValue(rawLocation) {
     return tokens.length ? tokens.join(' ') : rawLocation || '';
 }
 
+// The generic-region tail of LOCATION_CANONICAL — "Israel" or "North" alone
+// names no specific place, and filterOptions() (server/data/jobs.js) already
+// excludes bare "Israel" from the location facet for the same reason.
+// primaryCanonicalLocation uses this to prefer an actual city/town whenever
+// one is also present, regardless of which order the source writes them in —
+// Eightfold specifically writes "Israel, Yokneam" (country BEFORE city), so
+// picking the first Israeli token unconditionally would prefer the least
+// specific one exactly when a more specific one is sitting right next to it.
+const GENERIC_LOCATION_VALUES = new Set(['North', 'South', 'Center', 'Sharon', 'Shfela', 'Gush Dan', 'Israel']);
+
+/**
+ * The one canonical city/region a job's raw location string most likely
+ * means, for DISPLAY — e.g. so the client can render "Haifa, Israel" as חיפה
+ * instead of the raw English text. `null` when nothing in the raw string
+ * resolves (a foreign-only location, or a spelling this vocabulary doesn't
+ * recognize yet — see the location audit in docs/ROADMAP.md); the caller
+ * falls back to the raw string in that case, same as it always did.
+ *
+ * Prefers a specific city/town over a generic region/country bucket when a
+ * raw string names both, no matter which order they appear in; falls back
+ * to the generic bucket only when that's the only Israeli token found.
+ *
+ * This is the one place that decision gets made — GET /api/jobs sends the
+ * result alongside the raw `location` (see jobSearchService.js) and the
+ * client just looks it up in its own Hebrew label map (client/js/ui.js).
+ * Copying these regexes into the client instead would create a second list
+ * that can drift from this one, the exact thing buildJobFilters() (server/
+ * data/jobs.js) already exists to prevent on the query side.
+ */
+function primaryCanonicalLocation(rawLocation) {
+    const israeliTokens = locationTokens(rawLocation).filter((token) => isIsraeliLocation(token));
+    if (israeliTokens.length === 0) return null;
+    return israeliTokens.find((token) => !GENERIC_LOCATION_VALUES.has(token)) ?? israeliTokens[0];
+}
+
 module.exports = {
     LOCATION_CANONICAL,
     isIsraeliLocation,
     canonicalizeLocation,
     locationTokens,
     locationSearchValue,
+    primaryCanonicalLocation,
 };

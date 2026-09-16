@@ -457,7 +457,15 @@ function jobCard(job) {
   // surface before anything else. Location and experience follow with their
   // own accent because they're the two facts someone scans for next.
   if (job.isNew) addTag('tag tag-new', 'נוסף לאחרונה');
-  if (job.location) addTag('tag tag-highlight tag-location', LOCATION_PIN.cloneNode(true), job.location);
+  // locationCanonical (server/domain/locations.js's primaryCanonicalLocation,
+  // sent by GET /api/jobs) is the exact-key lookup HEBREW.location needs —
+  // the raw string ("Haifa, Israel", "Tel Aviv-Yafo, Tel Aviv District,
+  // Israel") never matched it directly. Falls back to the raw text when
+  // nothing resolves, same as before this existed.
+  if (job.location) {
+    const locationLabel = (job.locationCanonical && HEBREW.location[job.locationCanonical]) || job.location;
+    addTag('tag tag-highlight tag-location', LOCATION_PIN.cloneNode(true), locationLabel);
+  }
   if (job.experienceLevel) addTag('tag tag-highlight', HEBREW.experience[job.experienceLevel] || job.experienceLevel);
   if (job.employmentType) addTag('tag', HEBREW.employment[job.employmentType] || job.employmentType);
   if (job.department) addTag('tag', job.department);
@@ -651,6 +659,35 @@ function emptyState(totalMatching, page) {
     el('p', { textContent: 'המאגר ריק — עוד לא נאספו משרות.' }), steps);
 }
 
+/**
+ * "512 מתוך 2,201 — ל-1,659 משרות אין היקף משרה מוגדר" — the honest
+ * companion to a filter that excludes jobs with an unknown value, so
+ * selecting "משרה מלאה" and losing three quarters of the results doesn't
+ * read as the site being broken or empty. See jobSearchService.js's
+ * unknownGap for the decision this pins (option (b): keep excluding, but
+ * say so) and the real numbers it's based on.
+ *
+ * One line per filter that's actually active and has a gap to report;
+ * nothing rendered the rest of the time (the server only sends *Gap when
+ * that filter is set — see searchJobs).
+ */
+function renderFilterGapNote({ totalMatching, employmentGap, experienceGap }) {
+  const lines = [];
+  if (employmentGap) {
+    lines.push(
+      `${totalMatching.toLocaleString('en-US')} מתוך ${employmentGap.totalWithoutFilter.toLocaleString('en-US')}` +
+        ` — ל-${employmentGap.unknownCount.toLocaleString('en-US')} משרות אין היקף משרה מוגדר.`
+    );
+  }
+  if (experienceGap) {
+    lines.push(
+      `${totalMatching.toLocaleString('en-US')} מתוך ${experienceGap.totalWithoutFilter.toLocaleString('en-US')}` +
+        ` — ל-${experienceGap.unknownCount.toLocaleString('en-US')} משרות אין רמת ניסיון מוגדרת.`
+    );
+  }
+  $('filter-gap-note').replaceChildren(...lines.map((text) => el('p', { className: 'results-note', textContent: text })));
+}
+
 async function load() {
   // A link-only company's jobs are already excluded server-side (see
   // server/data/jobs.js's buildJobFilters) — asking the API would just come
@@ -664,16 +701,19 @@ async function load() {
     $('results-count').textContent = 'המשרות זמינות באתר החברה עצמה';
     $('results').replaceChildren(linkOnlyNotice(linkOnlyCompany));
     $('pagination').replaceChildren();
+    $('filter-gap-note').replaceChildren();
     return;
   }
 
-  let jobs, page, pageSize, totalMatching, totalPages;
+  let jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap;
   try {
-    ({ jobs, page, pageSize, totalMatching, totalPages } = await fetchJson('/api/jobs?' + buildQuery()));
+    ({ jobs, page, pageSize, totalMatching, totalPages, employmentGap, experienceGap } =
+      await fetchJson('/api/jobs?' + buildQuery()));
   } catch {
     $('results-count').textContent = 'לא ניתן לטעון את המשרות';
     $('results').replaceChildren(serverDownPanel());
     $('pagination').replaceChildren();
+    $('filter-gap-note').replaceChildren();
     return;
   }
 
@@ -695,6 +735,7 @@ async function load() {
       : jobs.length === 0
         ? `${totalMatching.toLocaleString('en-US')} משרות תואמות`
         : `${totalMatching.toLocaleString('en-US')} משרות תואמות · מציג ${formatRange(page, pageSize, jobs.length)}`;
+  renderFilterGapNote({ totalMatching, employmentGap, experienceGap });
   announce('');
 
   if (jobs.length === 0) {

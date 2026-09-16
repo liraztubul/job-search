@@ -12,6 +12,7 @@ const { createUser } = require('../server/data/users');
 const {
     queryJobs,
     countJobs,
+    countUnknownForField,
     upsertJobSnapshot,
     upsertJobSnapshots,
     countOpenJobs,
@@ -199,6 +200,46 @@ test('filters.locations matches any of the given cities (OR), not their intersec
 
     assert.equal(countJobs(userId, { companyId, locations: ['Tel Aviv', 'Haifa'] }), 2);
     assert.equal(countJobs(userId, { companyId, locations: [] }), 3, 'an empty list means no location filter at all');
+});
+
+// ---------------------------------------------------------------------------
+// filters.q — comma-separated terms are OR'd, same convention as `locations`
+// above and as a saved profile's own `keywords` (matcher.js). The search
+// box's own placeholder ("backend, algorithm…") always implied this; it used
+// to be a single literal-substring match instead — see docs/ROADMAP.md's
+// Phase 2 writeup, where the onboarding wizard's free-text step surfaced it
+// (a profile's comma-separated keywords, redirected straight into ?q=,
+// matched nothing at all).
+// ---------------------------------------------------------------------------
+
+test('filters.q matches any of several comma-separated terms (OR), not the literal joined string', () => {
+    const companyId = addCompany({ name: `Q Filter Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'Backend Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'b', title: 'Python Developer', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'c', title: 'Sales Manager', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    const matches = queryJobs(userId, { companyId, q: 'backend, python' }).jobs;
+    assert.equal(matches.length, 2);
+    assert.ok(matches.every((j) => j.title === 'Backend Engineer' || j.title === 'Python Developer'));
+
+    assert.equal(countJobs(userId, { companyId, q: 'backend, python' }), 2);
+});
+
+test('filters.q with a single term (no comma) behaves exactly as before', () => {
+    const companyId = addCompany({ name: `Q Single Term Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'Backend Engineer', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'b', title: 'Sales Manager', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    assert.equal(countJobs(userId, { companyId, q: 'backend' }), 1);
+});
+
+test('filters.q also matches against department, same as before, per term', () => {
+    const companyId = addCompany({ name: `Q Department Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, {
+        externalId: 'a', title: 'Team Member', location: 'Tel Aviv', applyUrl: 'https://example.com', department: 'Algorithms',
+    });
+
+    assert.equal(countJobs(userId, { companyId, q: 'algorithms, nonexistent-term' }), 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -489,6 +530,75 @@ test('link-only is reversible: clearing it brings the same, never-deleted jobs b
     clearLinkOnly(companyId);
     assert.equal(countJobs(userId, { companyId }), 1);
     assert.deepEqual(queryJobs(userId, { companyId }).jobs.map((j) => j.id), [jobId]);
+});
+
+// ---------------------------------------------------------------------------
+// filterOptions()'s facet counts must agree with countJobs()'s "total
+// matching" — they used to count straight from job_snapshots with no
+// is_still_open/link-only scoping at all, so a closed or link-only job's
+// employment_type/experience_level/location still added to the breakdown
+// shown next to a total that had already excluded it. See docs/ROADMAP.md's
+// count-mismatch writeup — this is the bug behind item 4 there.
+// ---------------------------------------------------------------------------
+
+test('a closed job\'s employment_type does not inflate the facet count past countJobs\'s total', () => {
+    const companyId = addCompany({ name: `Facet Closed Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, {
+        externalId: 'stays-open', title: 'Open', location: 'Tel Aviv', applyUrl: 'https://example.com', employmentType: 'full-time',
+    });
+    upsertJobSnapshot(companyId, {
+        externalId: 'will-close', title: 'Closing', location: 'Tel Aviv', applyUrl: 'https://example.com', employmentType: 'full-time',
+    });
+    closeMissingJobs(companyId, ['stays-open']);
+
+    const fullTimeCount = filterOptions(GUEST).employmentTypes.find((r) => r.value === 'full-time')?.count ?? 0;
+    assert.equal(fullTimeCount, 1, 'the closed job must not still be counted in the facet');
+});
+
+test('a link-only company\'s experience_level does not inflate the facet count either', () => {
+    const companyId = addCompany({ name: `Facet LinkOnly Co ${Math.random()}`, careerUrl: 'https://example.com', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, {
+        externalId: 'x', title: 'X', location: 'Tel Aviv', applyUrl: 'https://example.com', experienceLevel: 'senior',
+    });
+    const before = filterOptions(GUEST).experienceLevels.find((r) => r.value === 'senior')?.count ?? 0;
+
+    setLinkOnly(companyId, 'reason');
+    const after = filterOptions(GUEST).experienceLevels.find((r) => r.value === 'senior')?.count ?? 0;
+    assert.equal(after, before - 1);
+});
+
+test('a link-only company\'s location does not inflate the location facet either', () => {
+    const companyId = addCompany({ name: `Facet Loc LinkOnly Co ${Math.random()}`, careerUrl: 'https://example.com', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'x', title: 'X', location: 'Haifa', applyUrl: 'https://example.com' });
+    const before = filterOptions(GUEST).locations.find((r) => r.value === 'Haifa')?.count ?? 0;
+
+    setLinkOnly(companyId, 'reason');
+    const after = filterOptions(GUEST).locations.find((r) => r.value === 'Haifa')?.count ?? 0;
+    assert.equal(after, before - 1);
+});
+
+test('globally, the employment_type facet sum plus countUnknownForField equals countJobs\'s unfiltered total', () => {
+    // A structural invariant, true regardless of what other tests in this
+    // file have already inserted into the shared in-memory database — every
+    // matching job has either a known employment_type (counted in exactly
+    // one facet bucket) or none at all (counted by countUnknownForField),
+    // never both, never neither. If filterOptions() ever goes back to
+    // counting straight from job_snapshots with no is_still_open/link-only
+    // scoping, this stops holding.
+    const total = countJobs(userId, {});
+    const facetSum = filterOptions(GUEST).employmentTypes.reduce((sum, row) => sum + row.count, 0);
+    const unknown = countUnknownForField(userId, {}, 'employmentType');
+    assert.equal(facetSum + unknown, total);
+});
+
+test('countUnknownForField counts only jobs matching the OTHER active filters', () => {
+    const companyId = addCompany({ name: `Unknown Field Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    const otherCompanyId = addCompany({ name: `Unknown Field Other Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, { externalId: 'a', title: 'A', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+    upsertJobSnapshot(companyId, { externalId: 'b', title: 'B', location: 'Tel Aviv', applyUrl: 'https://example.com', employmentType: 'full-time' });
+    upsertJobSnapshot(otherCompanyId, { externalId: 'c', title: 'C', location: 'Tel Aviv', applyUrl: 'https://example.com' });
+
+    assert.equal(countUnknownForField(userId, { companyId }, 'employmentType'), 1, 'only company A\'s one unknown-type job');
 });
 
 test('setFirstScrapedAt is set once, and every later call is a no-op — the new-company trap depends on this', () => {

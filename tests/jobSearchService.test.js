@@ -151,6 +151,73 @@ test('a job with a real posted_at reports dateSource "source" through the full s
     assert.equal(result.jobs[0].isNew, true);
 });
 
+// ---------------------------------------------------------------------------
+// locationCanonical — the boundary fix for the "Haifa, Israel" displayed in
+// English bug (docs/ROADMAP.md). Resolved once on the server, sent alongside
+// the raw location so the client can do a plain exact-key lookup.
+// ---------------------------------------------------------------------------
+
+test('a job carries locationCanonical resolved from its raw location', () => {
+    const companyId = addCompany({ name: `Canonical Loc Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, {
+        externalId: 'haifa-job', title: 'Job', location: 'Haifa, Israel', applyUrl: 'https://example.com',
+    });
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId) }));
+    assert.equal(result.jobs[0].location, 'Haifa, Israel', 'the raw string is still sent — the client falls back to it');
+    assert.equal(result.jobs[0].locationCanonical, 'Haifa');
+});
+
+test('locationCanonical is null when nothing in the raw location resolves', () => {
+    const companyId = addCompany({ name: `Unresolved Loc Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    upsertJobSnapshot(companyId, {
+        externalId: 'foreign-job', title: 'Job', location: 'Shanghai', applyUrl: 'https://example.com',
+    });
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId) }));
+    assert.equal(result.jobs[0].locationCanonical, null);
+});
+
+// ---------------------------------------------------------------------------
+// employmentGap / experienceGap — the honest "and N more don't say" companion
+// to a filter that excludes unknown values (docs/ROADMAP.md's count-mismatch
+// writeup). Only present when that specific filter is active.
+// ---------------------------------------------------------------------------
+
+function seedEmploymentMix(companyId) {
+    upsertJobSnapshot(companyId, {
+        externalId: 'full-time-1', title: 'A', location: 'Tel Aviv', applyUrl: 'https://example.com', employmentType: 'full-time',
+    });
+    upsertJobSnapshot(companyId, {
+        externalId: 'contract-1', title: 'B', location: 'Tel Aviv', applyUrl: 'https://example.com', employmentType: 'contract',
+    });
+    upsertJobSnapshot(companyId, {
+        externalId: 'unknown-1', title: 'C', location: 'Tel Aviv', applyUrl: 'https://example.com',
+    });
+    upsertJobSnapshot(companyId, {
+        externalId: 'unknown-2', title: 'D', location: 'Tel Aviv', applyUrl: 'https://example.com',
+    });
+}
+
+test('no employmentGap/experienceGap when neither filter is active', () => {
+    const companyId = addCompany({ name: `No Gap Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    seedEmploymentMix(companyId);
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId) }));
+    assert.equal('employmentGap' in result, false);
+    assert.equal('experienceGap' in result, false);
+});
+
+test('employmentGap reports how many OTHER jobs (matching everything else) have no employment type at all', () => {
+    const companyId = addCompany({ name: `Emp Gap Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
+    seedEmploymentMix(companyId);
+
+    const result = searchJobs(userId, new URLSearchParams({ company: String(companyId), employment: 'full-time' }));
+    assert.equal(result.totalMatching, 1, 'only the one full-time job matches the strict filter');
+    assert.deepEqual(result.employmentGap, { totalWithoutFilter: 4, unknownCount: 2 });
+    assert.equal('experienceGap' in result, false, 'the experience filter was never set');
+});
+
 test('a job from a company\'s initial bulk load reports dateSource "unknown" through the full search path', () => {
     const companyId = addCompany({ name: `Bulk Load Co ${Math.random()}`, careerUrl: '', adapterType: 'manual', config: {} });
     upsertJobSnapshot(companyId, { externalId: 'old-catalogue', title: 'Old Job', location: 'Tel Aviv', applyUrl: 'https://example.com' });

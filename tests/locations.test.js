@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { locationTokens, isIsraeliLocation } = require('../server/data');
+const { locationTokens, isIsraeliLocation, primaryCanonicalLocation } = require('../server/data');
 
 /**
  * The "location" filter dropdown is Israel-only (server/db/index.js
@@ -121,4 +121,36 @@ test('a real multi-site location keeps its Israeli office and drops the rest fro
     assert.ok(tokens.includes('Shanghai')); // still a real token — just not an Israeli one
     assert.equal(isIsraeliLocation('Yokneam'), true);
     assert.equal(isIsraeliLocation('Shanghai'), false);
+});
+
+// ---------------------------------------------------------------------------
+// primaryCanonicalLocation — the boundary fix for the "Haifa, Israel"
+// displayed in English bug: HEBREW.location (client/js/ui.js) is an exact-key
+// map, and none of these raw strings are ever a bare key on their own.
+// ---------------------------------------------------------------------------
+
+test('primaryCanonicalLocation resolves the specific city out of a full raw string', () => {
+    assert.equal(primaryCanonicalLocation('Haifa, Israel'), 'Haifa');
+    assert.equal(primaryCanonicalLocation('Tel Aviv-Yafo, Tel Aviv District, Israel'), 'Tel Aviv');
+    assert.equal(primaryCanonicalLocation('Office - Israel - CyberArk Petach Tikva'), 'Petah Tikva');
+});
+
+test('primaryCanonicalLocation is null when nothing resolves — the client falls back to the raw text', () => {
+    assert.equal(primaryCanonicalLocation('Shanghai'), null);
+    assert.equal(primaryCanonicalLocation('2 Locations'), null);
+    assert.equal(primaryCanonicalLocation(''), null);
+    assert.equal(primaryCanonicalLocation(null), null);
+});
+
+test('primaryCanonicalLocation prefers a specific city over the generic Israel bucket, in either order', () => {
+    // Eightfold specifically writes the country BEFORE the city ("Israel,
+    // Yokneam · China, Shanghai" — see the multi-site test above) — the
+    // specific city must still win, not whichever token happens to come first.
+    assert.equal(primaryCanonicalLocation('Israel, Yokneam'), 'Yokneam');
+    assert.equal(primaryCanonicalLocation('Yokneam, Israel'), 'Yokneam');
+});
+
+test('primaryCanonicalLocation falls back to the generic bucket when that is genuinely all there is', () => {
+    assert.equal(primaryCanonicalLocation('Israel'), 'Israel');
+    assert.equal(primaryCanonicalLocation('North'), 'North');
 });

@@ -11,6 +11,33 @@ const { GUEST } = require('../data/tenancy');
 const { APPLICATION_STATUSES } = require('../domain/applicationStatus');
 const { computeFreshness } = require('../domain/jobFreshness');
 const { isStale } = require('../domain/scrapeFreshness');
+const { primaryCanonicalLocation } = require('../domain/locations');
+
+/**
+ * The employment-type and experience-level filters exact-match a column that
+ * most jobs don't have a value for (measured against the real database: 77.5%
+ * unknown for employment type, 42.7% for experience level — see docs/
+ * ROADMAP.md). Silently excluding them would make selecting a filter drop
+ * the vast majority of the database with no way to tell why. Chosen answer:
+ * KEEP excluding (the filter still means "only jobs confirmed to be this"),
+ * but tell the user how many more jobs simply don't say — see `*Gap` below,
+ * rendered by client/js/search.js. This is a different call from matcher.js's
+ * (unknown always passes) because this is a deliberate, visible, interactive
+ * click on a results list, not a background "is this worth telling someone
+ * about" computation — a filter that visibly does nothing (option (a) here
+ * would drop 2,274 results to ~2,244) reads as broken just as easily as one
+ * that silently hides too much.
+ *
+ * @param {number|typeof GUEST} userId
+ * @param {object} filters - already has `field` itself cleared by the caller
+ * @param {'employmentType'|'experienceLevel'} field
+ */
+function unknownGap(userId, filters, field) {
+    return {
+        totalWithoutFilter: data.countJobs(userId, filters),
+        unknownCount: data.countUnknownForField(userId, filters, field),
+    };
+}
 
 /**
  * @param {number} userId
@@ -46,12 +73,26 @@ function searchJobs(userId, params) {
     // companyRecency only exists to drive the SQL ORDER BY (see queryJobs) —
     // both are implementation details of how the list was built, not part of
     // the job's own shape, so neither rides along into the response.
+    //
+    // locationCanonical rides along too: the one canonical city/region
+    // domain/locations.js resolves the raw location to, or null. The client
+    // looks that up in its own Hebrew label map instead of trying to parse
+    // the raw string itself — one resolver, one source of truth (see
+    // primaryCanonicalLocation's own comment).
     const jobsWithFreshness = jobs.map(({ companyFirstScrapedAt, companyRecency, ...job }) => ({
         ...job,
         ...computeFreshness(job, companyFirstScrapedAt),
+        locationCanonical: primaryCanonicalLocation(job.location),
     }));
 
-    return { jobs: jobsWithFreshness, page, pageSize, totalMatching, totalPages };
+    const result = { jobs: jobsWithFreshness, page, pageSize, totalMatching, totalPages };
+
+    // Only computed when that filter is actually active — two more queries
+    // on every request would be waste for the common case of no filter set.
+    if (filters.employmentType) result.employmentGap = unknownGap(userId, { ...filters, employmentType: null }, 'employmentType');
+    if (filters.experienceLevel) result.experienceGap = unknownGap(userId, { ...filters, experienceLevel: null }, 'experienceLevel');
+
+    return result;
 }
 
 /**

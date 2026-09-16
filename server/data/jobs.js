@@ -372,10 +372,17 @@ function buildJobFilters(filters, owner) {
         where.push(`(${clauses.join(' OR ')})`);
     }
     if (filters.q) {
-        // Two placeholders, so the value is pushed twice — with positional
-        // parameters a repeated value is not a repeated name.
-        where.push('(j.title LIKE ? OR j.department LIKE ?)');
-        params.push(`%${filters.q}%`, `%${filters.q}%`);
+        // Comma-separated terms are OR'd, same convention as `locations`
+        // above and as a saved profile's own `keywords` (matcher.js) — the
+        // search box's own placeholder ("backend, algorithm…") has always
+        // implied this. A single term with no comma is just the one-term
+        // case of the same loop.
+        const terms = filters.q.split(',').map((t) => t.trim()).filter(Boolean);
+        const clauses = terms.map((term) => {
+            params.push(`%${term}%`, `%${term}%`);
+            return '(j.title LIKE ? OR j.department LIKE ?)';
+        });
+        if (clauses.length) where.push(`(${clauses.join(' OR ')})`);
     }
     if (filters.status) {
         where.push(filters.status === 'none' ? 'a.status IS NULL' : 'a.status = ?');
@@ -516,6 +523,42 @@ function countJobs(userId, filters = {}) {
         .get(...params).n;
 }
 
+// employmentType/experienceLevel both exact-match against j.employment_type/
+// j.experience_level in buildJobFilters() — see that function's own comment.
+const FIELD_COLUMN = { employmentType: 'employment_type', experienceLevel: 'experience_level' };
+
+/**
+ * Of the jobs matching every filter EXCEPT `field`, how many have no value
+ * for `field` at all (NULL or empty) — the honest "and N more don't say"
+ * count next to an employment-type/experience-level filter. See
+ * jobSearchService.js's searchJobs and docs/ROADMAP.md's unknown-value
+ * writeup: excluding unknowns from a filter this many jobs lack a value for
+ * would silently drop most of the database, so the UI shows both numbers
+ * instead of picking one silently.
+ *
+ * Reuses buildJobFilters with `field` itself cleared, so this can never
+ * drift from what countJobs/queryJobs actually consider "matching" — same
+ * discipline buildJobFilters's own header comment describes.
+ *
+ * @param {'employmentType'|'experienceLevel'} field
+ */
+function countUnknownForField(userId, filters, field) {
+    const owner = resolveViewer(userId);
+    const column = FIELD_COLUMN[field];
+    if (!column) throw new Error(`countUnknownForField: unknown field "${field}"`);
+
+    const { whereClause, params } = buildJobFilters({ ...filters, [field]: null }, owner);
+
+    return db
+        .prepare(
+            `SELECT COUNT(*) AS n
+               FROM job_snapshots j
+               LEFT JOIN applications a ON a.job_snapshot_id = j.id AND a.user_id = ?
+              WHERE ${whereClause} AND (j.${column} IS NULL OR j.${column} = '')`
+        )
+        .get(...params).n;
+}
+
 /**
  * Distinct values actually present in the data — so the UI never offers an
  * empty filter.
@@ -527,19 +570,31 @@ function countJobs(userId, filters = {}) {
  *
  * @param {number|typeof GUEST} userId
  */
+/**
+ * The same "is this job actually reachable" condition buildJobFilters()
+ * bakes into every unfiltered queryJobs()/countJobs() call — closed, and any
+ * link-only company's rows. filterOptions()'s facet breakdowns used to skip
+ * this and count straight from job_snapshots, so their counts summed to more
+ * (or less, depending on how much has closed since) than "total matching"
+ * on the search page — a mismatch a user has no way to explain, and loses
+ * trust over either number. See docs/ROADMAP.md's count-mismatch writeup.
+ */
+const MATCHING_JOB_CONDITION =
+    "is_still_open = 1 AND company_id NOT IN (SELECT id FROM watched_companies WHERE link_only_reason IS NOT NULL)";
+
 function filterOptions(userId) {
     const distinct = (column) =>
         db
             .prepare(
                 `SELECT ${column} AS value, COUNT(*) AS count FROM job_snapshots
-                  WHERE ${column} IS NOT NULL AND ${column} != ''
+                  WHERE ${column} IS NOT NULL AND ${column} != '' AND ${MATCHING_JOB_CONDITION}
                   GROUP BY ${column} ORDER BY count DESC`
             )
             .all();
 
     const locationCounts = new Map();
     for (const row of db
-        .prepare("SELECT location FROM job_snapshots WHERE location IS NOT NULL AND location != ''")
+        .prepare(`SELECT location FROM job_snapshots WHERE location IS NOT NULL AND location != '' AND ${MATCHING_JOB_CONDITION}`)
         .all()) {
         for (const token of locationTokens(row.location)) {
             // Every job on this site is already Israel-based, so the generic
@@ -601,6 +656,7 @@ module.exports = {
     upsertJobSnapshots,
     queryJobs,
     countJobs,
+    countUnknownForField,
     filterOptions,
     countOpenJobs,
     closeMissingJobs,

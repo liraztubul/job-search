@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { parseMobileyeJobs } = require('../server/adapters/mobileyeAdapter');
+const { parseMobileyeJobs, isIsraeliJob } = require('../server/adapters/mobileyeAdapter');
 const { parseGoogleJobs } = require('../server/adapters/googleAdapter');
 const { decodeEntities, stripTags } = require('../server/adapters/htmlUtils');
 const { EMPLOYMENT_TYPES, EXPERIENCE_LEVELS } = require('../server/domain/vocabulary');
@@ -51,6 +51,70 @@ test('Mobileye: the uuid is the id, and cards are not double counted', () => {
 
     assert.equal(new Set(ids).size, ids.length, 'duplicate jobs — the mobile/desktop dedupe broke');
     for (const id of ids) assert.match(id, /^[0-9a-f-]{36}$/);
+});
+
+// ---------------------------------------------------------------------------
+// Mobileye: a job with no usable title is dropped, not stored blank — the
+// regression the 2026-09-16 markup change caused (the title moved from
+// <h3> to <p class="jobTitle"> with no notice, and the old regex matched
+// nothing on every single card). docs/ROADMAP.md has the full writeup.
+// ---------------------------------------------------------------------------
+
+function cardWithTitle(uuid, titleHtml) {
+    // A minimal but real-shaped card: the href the parser anchors on, plus
+    // just enough of the title/location/department markup to exercise the
+    // regexes without dragging in a whole fixture-sized card.
+    return `href="/jobs/some-role/${uuid}" ` +
+        `<p class="department">Algorithms</p>${titleHtml}` +
+        `<img src="location_icon.svg"><p>Ramat Gan</p>`;
+}
+
+test('a card whose title tag is missing entirely is dropped, not stored with an empty title', () => {
+    const html = cardWithTitle('11111111-1111-1111-1111-111111111111', '<h3>Old Markup Title</h3>');
+    // <h3> is the OLD, no-longer-real markup — the parser must not match it.
+    assert.deepEqual(parseMobileyeJobs(html), []);
+});
+
+test('a card whose jobTitle element is present but empty is dropped', () => {
+    const html = cardWithTitle('22222222-2222-2222-2222-222222222222', '<p class="jobTitle">   </p>');
+    assert.deepEqual(parseMobileyeJobs(html), []);
+});
+
+test('a card with a real jobTitle element is kept', () => {
+    const html = cardWithTitle('33333333-3333-3333-3333-333333333333', '<p class="jobTitle">Real Title</p>');
+    const jobs = parseMobileyeJobs(html);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].title, 'Real Title');
+});
+
+test('one bad card among several good ones only drops the bad one', () => {
+    const html = [
+        cardWithTitle('44444444-4444-4444-4444-444444444444', '<p class="jobTitle">Good One</p>'),
+        cardWithTitle('55555555-5555-5555-5555-555555555555', '<p class="jobTitle"></p>'),
+        cardWithTitle('66666666-6666-6666-6666-666666666666', '<p class="jobTitle">Good Two</p>'),
+    ].join('\n');
+    const jobs = parseMobileyeJobs(html);
+    assert.deepEqual(jobs.map((j) => j.title), ['Good One', 'Good Two']);
+});
+
+// ---------------------------------------------------------------------------
+// Mobileye: worldwide postings filtered to Israel — the page itself has no
+// location/country filter of its own (unlike Greenhouse/Comeet/
+// SmartRecruiters, which take an explicit config). Real foreign cities
+// observed in the same fetch as the Israeli offices, all of which must NOT
+// pass isIsraeliJob.
+// ---------------------------------------------------------------------------
+
+test('isIsraeliJob accepts a job at a real Israeli office', () => {
+    for (const location of ['Ramat Gan', 'Jerusalem', 'Petah Tikva', 'Haifa', 'Tel-Aviv']) {
+        assert.equal(isIsraeliJob({ location }), true, `${location} should be accepted`);
+    }
+});
+
+test('isIsraeliJob rejects every real foreign city seen on the live page', () => {
+    for (const location of ['Munich', 'Shanghai', 'Beijing', 'Koblenz', 'Tokyo', 'Detroit', 'Los Angeles', 'Stuttgart']) {
+        assert.equal(isIsraeliJob({ location }), false, `${location} should be rejected`);
+    }
 });
 
 // ---------------------------------------------------------------------------

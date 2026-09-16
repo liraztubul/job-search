@@ -30,6 +30,62 @@
 
 <a class="skip-link" href="#results">דלג לתוצאות</a>
 
+<!-- First-run onboarding (docs/ROADMAP.md Phase 2) — shown by js/onboarding.js
+     only for a signed-in account with zero search profiles. A real modal:
+     the only ways out are "סיום" (save a profile) or the explicit "דלגי"
+     button — no backdrop-click, no Escape, so skipping is always a
+     deliberate choice, never the side effect of closing something. -->
+<div id="onboarding-overlay" class="onboarding-overlay" hidden>
+  <div class="card onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <p class="onboarding-step-indicator" id="onboarding-step-indicator">שלב 1 מתוך 3</p>
+
+    <div class="onboarding-step" id="onboarding-step-1">
+      <h2 id="onboarding-title">מה תרצי לחפש?</h2>
+      <p class="onboarding-intro">כמה מילים על התפקיד שאת מחפשת, והיקף משרה אם חשוב לך.</p>
+      <div class="field">
+        <label for="onb-keywords">מילות מפתח</label>
+        <input type="text" id="onb-keywords" class="ltr" autocomplete="off" placeholder="backend, python, node…">
+      </div>
+      <div class="field" style="margin-top:.75rem">
+        <label for="onb-employment">היקף משרה (לא חובה)</label>
+        <select id="onb-employment"><option value="">כל ההיקפים</option></select>
+      </div>
+    </div>
+
+    <div class="onboarding-step" id="onboarding-step-2" hidden>
+      <h2>איפה חשוב לך שהמשרה תהיה?</h2>
+      <p class="onboarding-intro">אפשר לבחור כמה מיקומים, או להשאיר ריק לכל הארץ.</p>
+      <div class="field multiselect" id="onb-location-field">
+        <span class="field-label" id="onb-location-label">מיקום</span>
+        <details id="onb-location-menu">
+          <summary id="onb-location-summary">כל המיקומים</summary>
+          <div class="multiselect-panel" id="onb-location-options" role="group" aria-labelledby="onb-location-label"></div>
+        </details>
+      </div>
+    </div>
+
+    <div class="onboarding-step" id="onboarding-step-3" hidden>
+      <h2>מה רמת הניסיון שלך?</h2>
+      <p class="onboarding-intro">נשתמש בזה כדי לא להציג משרות שלא מתאימות לך.</p>
+      <div class="field">
+        <label for="onb-experience">רמת ניסיון (לא חובה)</label>
+        <select id="onb-experience"><option value="">כל הרמות</option></select>
+      </div>
+    </div>
+
+    <p class="results-note" id="onboarding-error" role="alert" aria-live="assertive"></p>
+
+    <div class="onboarding-actions">
+      <div class="onboarding-nav-buttons">
+        <button type="button" class="btn" id="onboarding-back" hidden>הקודם</button>
+        <button type="button" class="btn primary" id="onboarding-next">הבא</button>
+        <button type="button" class="btn primary" id="onboarding-finish" hidden>סיום — הראי לי משרות</button>
+      </div>
+      <button type="button" class="btn-link" id="onboarding-skip">דלגי, הראי לי את כל המשרות</button>
+    </div>
+  </div>
+</div>
+
 <header class="site-header">
   <h1>JobTrail</h1>
   <nav class="main-nav" aria-label="ניווט ראשי">
@@ -49,6 +105,16 @@
 </header>
 
 <main>
+  <!-- Shown once, right after finishing the onboarding wizard (js/onboarding.js
+       detects the #onboarded landing) — not shown on every visit. -->
+  <div class="onboarding-banner" id="onboarding-banner" hidden>
+    <p>מוצגות משרות לפי מה שסימנת ביצירת הפרופיל.</p>
+    <p>
+      <a href="settings.html">עריכת מה שאני מחפש.ת</a>
+      <button type="button" class="btn-link" id="onboarding-show-all">הראי לי הכל</button>
+    </p>
+  </div>
+
   <form class="filters" id="filters" role="search" aria-labelledby="filters-legend">
     <fieldset>
       <legend id="filters-legend">סינון משרות</legend>
@@ -114,6 +180,12 @@
     <p class="results-count" id="results-count" role="status" aria-live="polite" aria-atomic="true">טוען משרות…</p>
     <p class="results-note" id="results-note"></p>
   </div>
+  <!-- "512 מתוך 2,201 — ל-1,659 משרות אין היקף משרה מוגדר": the honest gap
+       a filter on employment type / experience level leaves out by design
+       (see server/services/jobSearchService.js's unknownGap). Separate from
+       #results-note, which is the screen-reader live region and gets
+       cleared right after — this note is meant to stay visible. -->
+  <div id="filter-gap-note"></div>
 
   <div id="results" tabindex="-1"></div>
   <nav id="pagination" class="pagination"></nav>
@@ -124,6 +196,7 @@
 </footer>
 
 <script src="js/ui.js"></script>
+<script src="js/onboarding.js"></script>
 <script src="js/search.js"></script>
 </body>
 </html>
