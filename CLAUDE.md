@@ -672,3 +672,75 @@ to reclassify. Verified the drop this caused is exactly Rafael's three: total
 open `job_snapshots` was 2293, Rafael accounted for 3 of them, and
 `countJobs` (what search actually serves) reads 2290 — the arithmetic
 checks out, nothing else got caught in the exclusion.
+
+**The employment-type filter's ~80% drop (2026-09-24) is deliberate, not a
+bug.** `matcher.js` (background saved-profile matching) and the live
+`GET /api/jobs?employment=` filter (`jobSearchService.js`) made *different*
+choices on purpose, each with its own comment and test: matcher.js lets an
+unknown `employment_type` pass any filter, while the interactive search
+filter keeps excluding unknowns but reports the gap back
+(`employmentGap`/`experienceGap`, rendered by `search.js`'s
+`renderFilterGapNote`) — see jobSearchService.js's own comment on `unknownGap`
+for why those two calls differ. Both landed weeks ago (`545860c`, `9504f29`),
+confirmed still live: `GET /api/jobs?employment=full-time` returns
+`employmentGap: {"totalWithoutFilter":2257,"unknownCount":1858}` alongside
+`totalMatching: 385`. If a future work order reports this as unimplemented,
+check the live response before redoing it — `/api/jobs?employment=full-time`
+returning far fewer than the unfiltered count is the intended result of
+option (b), not evidence option (b) is missing.
+
+**Thirty companies added (2026-09-24), all existing adapters (26 Greenhouse,
+4 Ashby), no new code** — Cato Networks, JFrog, Gong, Via, Transmit Security,
+Fireblocks, Axonius, Forter, Tipalti, Armis, Orca Security, Descope, BigID,
+Torq, Salt Security, Sweet Security, Innovid, Lightrun, Cymulate, SafeBreach,
+Apiiro, Guardz, Capitolis, DataRails, Torii, Hello Heart, Lemonade, Moon
+Active, HoneyBook, Unit. Melio was already tracked (`melio`, Greenhouse) and
+skipped. Innovid, Lightrun, Torii and Capitolis each have exactly one Israeli
+posting — real, confirmed against the live API, just not expected to move
+search results much. Sentra and Oligo Security were checked and deliberately
+excluded again: both now 404 on the board tokens that used to work, so
+whatever the earlier check found is no longer reachable the same way; not
+re-investigated, same "don't chase a single-digit/zero count" rule as
+Innovid/Lightrun/Torii/Capitolis.
+
+**Found while verifying this batch: a real false-positive in the location
+matcher, not an adapter bug.** `locations.js`'s generic-region bucket
+(`Center`/`North`/`South`/`Sharon`/`Shfela`/`Gush Dan`) matches on the bare
+word alone, with no requirement that the surrounding string mention Israel at
+all. Two live collisions found this way: Orca Security posts two Singapore
+roles whose office name is literally `"Singapore, Central, Singapore"` — the
+bare token `"Central"` (Singapore's business district) matches the same
+pattern as Israel's Center region — and Salt Security posts a US
+sales-territory role literally named `"Central"` with no country in the
+string anywhere. Both would have been pulled in by the greenhouse adapter's
+default "no `location` configured, auto-match any recognized Israeli token"
+fallback (see greenhouseAdapter.js's `matchesLocation`). Fixed narrowly, per
+company, with the adapter's own `location` config option
+(`{"boardToken":"orcasecurity","location":"Tel Aviv"}`,
+`{"boardToken":"saltsecurity","location":"Tel Aviv"}`) rather than touching
+the shared `LOCATION_CANONICAL` patterns — a global fix risks unknown
+side effects across the other 80+ companies using the same auto-detect path,
+and was out of scope for this batch. **Worth a real fix later**: the generic
+bucket should probably require an accompanying Israel/city token in the same
+raw string before matching, the same way `primaryCanonicalLocation` already
+prefers a specific city over a generic one when both are present — right now
+nothing stops the next homoglyph collision (a "South" sales region, a
+"Sharon" as a person's name in an address line) from doing the same thing
+silently. Confirmed both fixes are correct against the live site: Orca now
+shows 2 open jobs (both genuinely Tel Aviv), Salt Security shows 5 (the
+`"Central"` row is marked closed, not deleted — history stays).
+
+Pushed via a one-off `workflow_dispatch` job (`tools/ci-add-batch-2026-09-24.js`,
+deleted after use, same pattern `push-to-turso.js`'s header describes) rather
+than a local `push-to-turso.js` run, because this session had no
+`TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` available — added companies directly
+against Turso using the same GitHub Actions secrets `scrape.yml` already
+uses, then ran one scrape cycle in the same job so they had real jobs
+immediately instead of waiting for the next scheduled run. All 30 confirmed
+live via `GET /api/meta` afterward, with job counts matching the local dry
+run. The scrape step in that job exited non-zero — but so did the two
+`Scrape career pages` runs immediately before it (03:43 and 11:18 UTC the
+same day, both on the prior commit, before this batch existed) — so this
+looks like a pre-existing, unrelated recurring failure rather than anything
+this batch caused. Not investigated further; out of scope for this change,
+and the regular scheduled scrape will keep surfacing it if it's real.
