@@ -149,6 +149,73 @@ function openDatabase() {
 const db = openDatabase();
 
 /**
+ * Turso closes an idle Hrana stream server-side, and the libsql client has no
+ * code path that notices and reopens one — every query against a closed
+ * stream fails forever with this exact shape (`Hrana(Api("status=404 Not
+ * Found, body={\"error\":\"stream not found: ...\"}"))`) until something
+ * creates a new `Database(...)`.
+ *
+ * This used to be invisible: Render's free tier slept the whole container
+ * after 15 minutes idle, and waking it re-ran this file from scratch — new
+ * process, new client, new stream. An uptime monitor now keeps the container
+ * alive for days, so the one connection opened above has to outlive a stream
+ * timeout that's empirically well under an hour instead of always dying with
+ * the process that opened it.
+ *
+ * Matched narrowly (the Hrana wrapper AND "stream not found", not just any
+ * error) so a real, different failure is never mistaken for a stale stream
+ * and silently retried into hiding.
+ */
+function isStreamNotFoundError(err) {
+    return !!err && typeof err.message === 'string' && /Hrana/.test(err.message) && /stream not found/i.test(err.message);
+}
+
+/**
+ * Runs `attempt()`; on a stale-stream failure, calls `reconnect()` once and
+ * retries `attempt()` exactly once more. Any other error, or a second
+ * consecutive failure, propagates untouched — a repeat failure right after a
+ * fresh connection is a real problem, not a stale stream, and swallowing it
+ * would hide something worse.
+ *
+ * Kept free of any reference to `db`/`openDatabase` so the retry behaviour
+ * itself is unit-testable with a fake failing connection — Turso's
+ * stream-idle timeout can't be forced on demand from a test. See
+ * tests/connection.test.js.
+ */
+function retryOnStaleStream(attempt, reconnect) {
+    try {
+        return attempt();
+    } catch (err) {
+        if (!isStreamNotFoundError(err)) throw err;
+        console.log('Turso stream not found (idle Hrana stream closed server-side) — reopening the connection and retrying the query once.');
+        reconnect();
+        return attempt();
+    }
+}
+
+/**
+ * `activeHandle.prepare`/`.close` are bound to whichever raw connection is
+ * currently live, captured before `db.prepare` (below) is overridden — `db`
+ * itself never changes identity (every repository file already destructured
+ * `{ db }` out of this module at require time), only which real connection
+ * its queries actually run against does.
+ */
+function toHandle(connection) {
+    return { prepare: connection.prepare.bind(connection), close: connection.close.bind(connection) };
+}
+
+let activeHandle = toHandle(db);
+
+function reconnect() {
+    try {
+        activeHandle.close();
+    } catch {
+        // Already dead — that's exactly why we're here. Nothing to clean up.
+    }
+    activeHandle = toHandle(openDatabase());
+}
+
+/**
  * libsql's `.get()` attaches a `_metadata` key (query duration) that
  * better-sqlite3 never returned. `.all()` does not. That inconsistency is
  * invisible until a single row is passed straight to `sendJson` — which
@@ -160,17 +227,22 @@ const db = openDatabase();
  * at each call site instead would mean the next `.get()` anyone writes
  * reintroduces it.
  */
-const nativePrepare = db.prepare.bind(db);
-db.prepare = (sql) => {
-    const statement = nativePrepare(sql);
-    const nativeGet = statement.get.bind(statement);
-    statement.get = (...args) => {
-        const row = nativeGet(...args);
-        if (row && typeof row === 'object' && '_metadata' in row) delete row._metadata;
-        return row;
-    };
-    return statement;
-};
+function runStatement(sql, method, args) {
+    const statement = activeHandle.prepare(sql);
+    const result = statement[method](...args);
+    if (method === 'get' && result && typeof result === 'object' && '_metadata' in result) delete result._metadata;
+    return result;
+}
+
+// A local file or :memory: connection has no Hrana stream to go stale, so
+// isStreamNotFoundError never matches here and retryOnStaleStream is a
+// straight passthrough — this wrapper only ever changes behaviour against a
+// hosted Turso database.
+db.prepare = (sql) => ({
+    get: (...args) => retryOnStaleStream(() => runStatement(sql, 'get', args), reconnect),
+    all: (...args) => retryOnStaleStream(() => runStatement(sql, 'all', args), reconnect),
+    run: (...args) => retryOnStaleStream(() => runStatement(sql, 'run', args), reconnect),
+});
 
 // Tables and every column added since. The lists live in schema.js so a tool
 // can bring a brand-new remote database to the same shape without opening a
@@ -370,4 +442,10 @@ module.exports = {
     cleanupComeetPostedAt,
     cleanupInvalidExperienceFilters,
     backfillIsTech,
+    // Exported for tests/connection.test.js only — the stale-stream retry
+    // can't be exercised end-to-end because Turso's idle timeout can't be
+    // forced on demand, so the test drives these directly with a fake
+    // failing connection instead.
+    isStreamNotFoundError,
+    retryOnStaleStream,
 };
