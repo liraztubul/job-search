@@ -1,0 +1,42 @@
+# One-off: add the 3 companies from MORE-COMPANIES-PROMPT.md straight to the
+# hosted Turso database, then run one scrape cycle so they have real jobs
+# immediately instead of waiting for the next scheduled run.
+#
+# Not a standing workflow — delete this file (and
+# tools/ci-add-batch-2026-09-24b.js) once the push is confirmed live on the
+# site.
+
+name: One-off - add 2026-09-24 company batch (b)
+
+on:
+  push:
+    paths:
+      - 'tools/ci-add-batch-2026-09-24b.js'
+  workflow_dispatch:
+
+jobs:
+  add-and-scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Add the company rows
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node tools/ci-add-batch-2026-09-24b.js
+
+      - name: Run one scrape cycle so the new companies have real jobs now
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node server/main.js
