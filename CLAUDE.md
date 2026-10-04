@@ -219,6 +219,19 @@ Guessing at field names is the main way this project wastes an hour.
   Windows and Linux. Install on the machine that runs it.
 - Development is on **Windows**. Don't assume bash-only shell syntax.
 - Never commit `.env` or `jobtrail.db` (it holds personal search profiles).
+- **Never `git commit`, and never `git push`, without being asked first — not
+  even after work that looks complete and verified.** A commit is not a safe
+  default step just because it's local: it's recorded in git's history
+  (author, message, timestamp) the moment it's made, before the owner has seen
+  the diff. She reviews the actual file changes first and commits herself.
+  Finish the work order, run whatever local verification it asks for, leave
+  the result as uncommitted changes in the working tree, and stop — report
+  what's ready and wait. This applies even to the "push via a one-off GitHub
+  Actions job, since this session has no Turso credentials" pattern used for
+  the last few batches: that pattern is for getting a company batch into the
+  live Turso database, a separate thing from committing/pushing the branch to
+  GitHub, and it does not override this rule either — ask before triggering
+  that job too.
 - A scrape returning `[]` usually means the scraper broke, not that the company
   closed every role. Never act on an empty result as if it were real.
 - The pages must be opened **through the server**, not by double-clicking the
