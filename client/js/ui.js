@@ -78,24 +78,34 @@ function applyTheme(theme) {
  * Red is doing real work here rather than decoration: it is reserved for the
  * one action that throws away state. Colour alone never carries meaning, so the
  * word "התנתקות" says the same thing for anyone who cannot distinguish it.
+ *
+ * Every state also gets a greeting ("Hello, <name>" / "Hello, Guest") in front
+ * of the controls. It is added only once /api/session has answered (or failed),
+ * never up front — a signed-in visitor must not see "Hello, Guest" flash first.
  */
 async function initSessionNav() {
   const slot = $('account-slot');
   if (!slot) return;
 
-  let session;
+  let session = null;
   try {
     session = await (await fetch('/api/session')).json();
   } catch {
-    return; // server down; the page already says so elsewhere
+    // Server down; the page already says so elsewhere. Greet as a guest rather
+    // than leave a gap, and keep the default "התחברות" link.
   }
 
-  if (!session.authRequired) {
-    slot.replaceChildren();
+  const greeting = greetingElement(session);
+
+  if (session && !session.authRequired) {
+    slot.replaceChildren(greeting);
     return;
   }
 
-  if (!session.authenticated) return; // the default "התחברות" link is correct
+  if (!session?.authenticated) {
+    slot.prepend(greeting); // the default "התחברות" link is correct
+    return;
+  }
 
   const settings = el('a', { className: 'btn', href: 'settings.html', textContent: 'הגדרות' });
 
@@ -115,7 +125,44 @@ async function initSessionNav() {
     location.replace('index.html');
   });
 
-  slot.replaceChildren(settings, logout);
+  slot.replaceChildren(greeting, settings, logout);
+}
+
+/**
+ * The name the header greets someone by: the part of their email before the
+ * `@`. `users` has no name column, and the full address is never shown — the
+ * header ends up in screenshots and screen-shares; the local part is enough.
+ * Returns null when there is nothing usable, which the caller reads as "Guest".
+ */
+function greetingName(email) {
+  if (typeof email !== 'string') return null;
+  const trimmed = email.trim();
+  // lastIndexOf: whatever else the local part holds, the domain is always cut.
+  const at = trimmed.lastIndexOf('@');
+  const local = (at === -1 ? trimmed : trimmed.slice(0, at)).trim();
+  return local || null;
+}
+
+/**
+ * "Hello, Guest" unless there is a real, signed-in session. With accounts off
+ * every request runs as account 1 (a placeholder, not a person), so that is a
+ * guest too — not a made-up name.
+ */
+function greetingText(session) {
+  const real = session?.authRequired && session.authenticated;
+  return 'Hello, ' + ((real && greetingName(session.email)) || 'Guest');
+}
+
+/**
+ * English on an RTL page, on purpose. dir="ltr" keeps "Hello, liraz.t41" in
+ * that order, and <bdi> isolates the name so its own characters (dots, digits,
+ * Hebrew) can't reorder the comma around it. textContent only — the name is
+ * user-controlled.
+ */
+function greetingElement(session) {
+  const name = greetingText(session).slice('Hello, '.length);
+  return el('span', { className: 'greeting', dir: 'ltr' },
+    'Hello, ', el('bdi', { textContent: name, title: name }));
 }
 
 function initUI() {

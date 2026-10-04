@@ -224,6 +224,10 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
 /* Sits last in the header, after the spacer — the physical left edge in RTL. */
 #account-slot { display:flex; align-items:center; gap:.5rem; }
 #account-slot .btn { text-decoration:none; display:inline-flex; align-items:center; }
+/* English greeting on an RTL page — see greetingElement() in ui.js. Long
+   local parts truncate rather than shove the buttons off a narrow screen. */
+#account-slot .greeting { font-size:.88rem; color:var(--text); white-space:nowrap; }
+#account-slot .greeting bdi { display:inline-block; vertical-align:bottom; overflow:hidden; text-overflow:ellipsis; max-width:16ch; }
 .btn.primary {
   background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600;
 }
@@ -422,4 +426,5 @@ td a:hover { color:var(--accent); }
   .job { grid-template-columns:1fr; }
   .job-status { min-width:0; }
   .search-row { flex-direction:column; align-items:stretch; }
+  #account-slot .greeting bdi { max-width:9ch; }
 }
