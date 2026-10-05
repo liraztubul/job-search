@@ -227,6 +227,13 @@ select:hover,input:hover,textarea:hover { border-color:var(--accent); }
 /* English greeting on an RTL page — see greetingElement() in ui.js. Long
    local parts truncate rather than shove the buttons off a narrow screen. */
 #account-slot .greeting { font-size:.88rem; color:var(--text); white-space:nowrap; }
+/* Wide screens: the greeting sits in the true middle of the header, not
+   between the groups (they're different widths). Below 900px there isn't room
+   between nav and controls, so it stays in the flow beside the buttons. */
+@media (min-width:900px) {
+  .site-header { position:relative; }
+  #account-slot .greeting { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
+}
 #account-slot .greeting bdi { display:inline-block; vertical-align:bottom; overflow:hidden; text-overflow:ellipsis; max-width:16ch; }
 .btn.primary {
   background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600;
