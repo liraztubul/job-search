@@ -79,9 +79,10 @@ function applyTheme(theme) {
  * one action that throws away state. Colour alone never carries meaning, so the
  * word "התנתקות" says the same thing for anyone who cannot distinguish it.
  *
- * Every state also gets a greeting ("Hello, <name>" / "Hello, Guest") in front
- * of the controls. It is added only once /api/session has answered (or failed),
- * never up front — a signed-in visitor must not see "Hello, Guest" flash first.
+ * Every state also gets a greeting ("Hello, <name>" / "Hello, Guest") in the
+ * middle of the header. It is added only once /api/session has answered (or
+ * failed), never up front — a signed-in visitor must not see "Hello, Guest"
+ * flash first.
  */
 async function initSessionNav() {
   const slot = $('account-slot');
@@ -95,17 +96,16 @@ async function initSessionNav() {
     // than leave a gap, and keep the default "התחברות" link.
   }
 
-  const greeting = greetingElement(session);
+  // A direct child of the header, not inside the slot: it is centred on the
+  // header itself, which the slot (pinned to the left edge) can't do.
+  slot.before(greetingElement(session));
 
   if (session && !session.authRequired) {
-    slot.replaceChildren(greeting);
+    slot.replaceChildren();
     return;
   }
 
-  if (!session?.authenticated) {
-    slot.prepend(greeting); // the default "התחברות" link is correct
-    return;
-  }
+  if (!session?.authenticated) return; // the default "התחברות" link is correct
 
   const settings = el('a', { className: 'btn', href: 'settings.html', textContent: 'הגדרות' });
 
@@ -125,13 +125,14 @@ async function initSessionNav() {
     location.replace('index.html');
   });
 
-  slot.replaceChildren(greeting, settings, logout);
+  slot.replaceChildren(settings, logout);
 }
 
 /**
  * The name the header greets someone by: the part of their email before the
- * `@`. `users` has no name column, and the full address is never shown — the
- * header ends up in screenshots and screen-shares; the local part is enough.
+ * `@`, cut again at the first `.` — "liraz.t41@gmail.com" greets "liraz".
+ * `users` has no name column, and the full address is never shown — the
+ * header ends up in screenshots and screen-shares.
  * Returns null when there is nothing usable, which the caller reads as "Guest".
  */
 function greetingName(email) {
@@ -140,7 +141,9 @@ function greetingName(email) {
   // lastIndexOf: whatever else the local part holds, the domain is always cut.
   const at = trimmed.lastIndexOf('@');
   const local = (at === -1 ? trimmed : trimmed.slice(0, at)).trim();
-  return local || null;
+  // ".liraz@x.com" has nothing before its dot; greet by the whole local part
+  // rather than fall back to "Guest" for someone who is signed in.
+  return local.split('.')[0] || local || null;
 }
 
 /**
@@ -162,6 +165,7 @@ function greetingText(session) {
 function greetingElement(session) {
   const name = greetingText(session).slice('Hello, '.length);
   return el('span', { className: 'greeting', dir: 'ltr' },
+    el('span', { className: 'greeting-wave', textContent: '👋', ariaHidden: 'true' }),
     'Hello, ', el('bdi', { textContent: name, title: name }));
 }
 

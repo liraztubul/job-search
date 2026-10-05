@@ -14,14 +14,20 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'client', 'js', 'ui.js
 const { greetingName, greetingText } =
     vm.runInNewContext(source + '\n;({ greetingName, greetingText })', {});
 
-test('greetingName: the part before the @, never the full address', () => {
-    assert.strictEqual(greetingName('liraz.t41@gmail.com'), 'liraz.t41');
-    assert.strictEqual(greetingName('a.b+c@x.com'), 'a.b+c');
+test('greetingName: the part before the @, cut at the first dot', () => {
+    assert.strictEqual(greetingName('liraz.t41@gmail.com'), 'liraz');
+    assert.strictEqual(greetingName('a.b+c@x.com'), 'a');
+    assert.strictEqual(greetingName('liraz41@gmail.com'), 'liraz41');
+    assert.strictEqual(greetingName('a+c@x.com'), 'a+c');
     assert.strictEqual(greetingName('  someone@example.com  '), 'someone');
 });
 
+test('greetingName: nothing before the dot -> the whole local part', () => {
+    assert.strictEqual(greetingName('.liraz@x.com'), '.liraz');
+});
+
 test('greetingName: keeps the case it was given', () => {
-    assert.strictEqual(greetingName('Liraz.T41@Gmail.COM'), 'Liraz.T41');
+    assert.strictEqual(greetingName('Liraz.T41@Gmail.COM'), 'Liraz');
 });
 
 test('greetingName: cuts at the last @, so the domain can never leak', () => {
@@ -45,7 +51,7 @@ test('greetingName: markup stays plain text (rendering uses textContent)', () =>
 test('greetingText: signed in -> Hello, <local part>', () => {
     assert.strictEqual(
         greetingText({ authRequired: true, authenticated: true, email: 'liraz.t41@gmail.com' }),
-        'Hello, liraz.t41');
+        'Hello, liraz');
 });
 
 test('greetingText: every other state is a guest', () => {
