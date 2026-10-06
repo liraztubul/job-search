@@ -12,8 +12,10 @@ function wasNotified(jobSnapshotId, profileId) {
 }
 
 function recordNotification(jobSnapshotId, profileId) {
+    // Idempotent: UNIQUE(job_snapshot_id, profile_id) + OR IGNORE.
     db.prepare(
-        'INSERT OR IGNORE INTO notifications_sent (job_snapshot_id, profile_id, sent_at) VALUES (?, ?, ?)'
+        'INSERT OR IGNORE INTO notifications_sent (job_snapshot_id, profile_id, sent_at) VALUES (?, ?, ?)',
+        { idempotent: true }
     ).run(jobSnapshotId, profileId, new Date().toISOString());
 }
 

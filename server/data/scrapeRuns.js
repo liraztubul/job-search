@@ -11,10 +11,17 @@ const { db } = require('./connection');
  *          closedJobs: number, failures: {company: string, error: string}[]}} run
  */
 function recordScrapeRun({ startedAt, finishedAt, companies, newJobs, closedJobs, failures }) {
+    // NOT strictly idempotent — a replay after a dropped connection that had
+    // in fact applied the INSERT leaves two identical rows. Marked retryable
+    // anyway, deliberately: the only reader is getLastScrapeRun below, which
+    // reads the newest row's finished_at, and a duplicate says exactly the
+    // same thing. Losing this row instead is the worse outcome — the whole
+    // cycle's data refreshed, but the site would still call it stale.
     db.prepare(
         `INSERT INTO scrape_runs
             (started_at, finished_at, companies, new_jobs, closed_jobs, failures, failure_details)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        { idempotent: true }
     ).run(
         startedAt,
         finishedAt,

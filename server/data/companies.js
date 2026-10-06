@@ -42,7 +42,10 @@ function addCompany({ name, careerUrl, adapterType, config }) {
  * without needing to track "have I already set this" itself.
  */
 function setFirstScrapedAt(companyId, timestamp) {
-    db.prepare('UPDATE watched_companies SET first_scraped_at = ? WHERE id = ? AND first_scraped_at IS NULL').run(
+    // Idempotent: the IS NULL guard makes a replay a no-op.
+    db.prepare('UPDATE watched_companies SET first_scraped_at = ? WHERE id = ? AND first_scraped_at IS NULL', {
+        idempotent: true,
+    }).run(
         timestamp,
         companyId
     );
@@ -73,8 +76,10 @@ function setKnownIssue(companyId, kind, reason) {
 }
 
 function clearKnownIssue(companyId) {
+    // Idempotent: sets constants.
     db.prepare(
-        'UPDATE watched_companies SET known_issue_kind = NULL, known_issue_reason = NULL, known_issue_at = NULL WHERE id = ?'
+        'UPDATE watched_companies SET known_issue_kind = NULL, known_issue_reason = NULL, known_issue_at = NULL WHERE id = ?',
+        { idempotent: true }
     ).run(companyId);
 }
 
@@ -85,7 +90,10 @@ function clearKnownIssue(companyId) {
  * scratch rather than inheriting an old one.
  */
 function resetRefusalStreak(companyId) {
-    db.prepare('UPDATE watched_companies SET refusal_streak = 0, last_refused_count = NULL WHERE id = ?').run(companyId);
+    // Idempotent: sets constants.
+    db.prepare('UPDATE watched_companies SET refusal_streak = 0, last_refused_count = NULL WHERE id = ?', {
+        idempotent: true,
+    }).run(companyId);
 }
 
 /**
@@ -100,7 +108,11 @@ function resetRefusalStreak(companyId) {
 function recordRefusal(companyId, returnedCount) {
     const before = db.prepare('SELECT refusal_streak FROM watched_companies WHERE id = ?').get(companyId);
     const streak = (before?.refusal_streak || 0) + 1;
-    db.prepare('UPDATE watched_companies SET refusal_streak = ?, last_refused_count = ? WHERE id = ?').run(
+    // Idempotent: writes the absolute streak computed above, not
+    // `refusal_streak + 1` — a replay sets the same number, never counts twice.
+    db.prepare('UPDATE watched_companies SET refusal_streak = ?, last_refused_count = ? WHERE id = ?', {
+        idempotent: true,
+    }).run(
         streak,
         returnedCount,
         companyId

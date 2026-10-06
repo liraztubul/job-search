@@ -102,7 +102,10 @@ if (require.main === module) {
             process.exit(0);
         })
         .catch((err) => {
-            console.error('Cycle crashed:', err.message);
+            // Still exit 1: a crashed cycle is red even when runCycle managed
+            // to record the partial run (see recordCrashedRun).
+            const where = err.crashedAt ? ` (while processing ${err.crashedAt})` : '';
+            console.error(`Cycle crashed${where}:`, err.message);
             process.exit(1);
         });
 }

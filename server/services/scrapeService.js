@@ -34,6 +34,157 @@ function recordFailure(summary, onEvent, company, kind, error, extra = {}) {
 }
 
 /**
+ * One company's whole turn in the cycle. Returns true when its data was
+ * actually refreshed, false when it was recorded as a failure instead (an
+ * adapter throwing, the sanity gate refusing) — both are normal outcomes.
+ * Anything that THROWS out of here is not a per-company failure: it is the
+ * database itself failing, and runCycle treats it as the cycle crashing.
+ */
+async function scrapeCompany(company, profiles, summary, onEvent) {
+    onEvent({ type: 'company:start', company: company.name });
+
+    let jobs;
+    try {
+        jobs = await buildAdapter(company).getCurrentJobs();
+    } catch (err) {
+        // One broken company must never stop the others. See ARCHITECTURE.md
+        // §4.3 — blast radius of a site change is one adapter. `classifyFailure`
+        // trusts a kind the adapter set at the exact point it understood the
+        // failure (server/domain/scrapeOutcome.js) and defaults to `broken` for
+        // a plain, unclassified Error — which is the correct default, not a gap.
+        recordFailure(summary, onEvent, company, classifyFailure(err), err.message);
+        return false;
+    }
+
+    onEvent({ type: 'company:fetched', company: company.name, count: jobs.length });
+
+    // Sanity gate (ARCHITECTURE.md §4.2, server/domain/scrapeSanity.js):
+    // "the company closed every role" and "the scraper broke" look
+    // identical in the data. Existing rows are left untouched when the
+    // gate refuses a result, and — critically — closure detection below
+    // never runs, so a broken adapter can never mass-close a company's
+    // listings. `company.last_refused_count` is what makes the gate's
+    // memory work: null unless the PREVIOUS cycle also refused this
+    // company, in which case a closely-matching count here means the
+    // drop is real, not a fluke — see evaluateSanityGate.
+    const openBefore = data.countOpenJobs(company.id);
+    const verdict = evaluateSanityGate(openBefore, jobs.length, company.last_refused_count);
+    if (!verdict.trusted) {
+        const streak = data.recordRefusal(company.id, jobs.length);
+        const escalated = streak >= REFUSAL_ESCALATION_THRESHOLD;
+        const kind = escalated ? FAILURE_KIND.BROKEN : FAILURE_KIND.REFUSED;
+        const reason = escalated
+            ? `sanity gate: ${verdict.reason} (refused ${streak} times in a row — treating as broken, not just held back)`
+            : `sanity gate: ${verdict.reason}`;
+        recordFailure(summary, onEvent, company, kind, reason, { refusalStreak: streak });
+        return false;
+    }
+    // Trusted — either normally, or because the gate's memory just accepted a
+    // repeating drop. Either way any past streak is over; a future refusal
+    // starts counting from zero rather than inheriting this one.
+    if (company.refusal_streak > 0) data.resetRefusalStreak(company.id);
+
+    // A known_issue_kind records "this is expected right now" — the
+    // moment a fetch actually succeeds that statement is false, and a
+    // stale acknowledgment is worse than none: it would silence a real
+    // failure of the same kind later. No human has to notice and clear
+    // it by hand; the run does it the moment it stops being true.
+    if (company.known_issue_kind) {
+        data.clearKnownIssue(company.id);
+        onEvent({ type: 'company:issue-cleared', company: company.name, kind: company.known_issue_kind });
+    }
+
+    // One SELECT + a handful of batched writes for the whole company,
+    // not two round trips per job — see the comment on
+    // upsertJobSnapshots in data/jobs.js for why that distinction only
+    // matters once the database is on the far side of a network.
+    const seenExternalIds = jobs.map((job) => job.externalId);
+    const results = data.upsertJobSnapshots(company.id, jobs);
+
+    for (const job of jobs) {
+        const { isNew, id } = results.get(job.externalId);
+        if (!isNew) continue;
+
+        summary.newJobs++;
+        onEvent({ type: 'job:new', company: company.name, title: job.title, location: job.location });
+
+        for (const profile of profiles) {
+            if (!matches(job, profile) || data.wasNotified(id, profile.id)) continue;
+
+            summary.matches++;
+            onEvent({ type: 'job:matched', profile: profile.name, title: job.title, url: job.applyUrl });
+
+            // Recorded, not sent. The queue-and-drain design is in
+            // ARCHITECTURE.md §4.5; until a sender exists this is console-only.
+            data.recordNotification(id, profile.id);
+        }
+    }
+
+    // Closure detection (ARCHITECTURE.md §4.3): only ever reached after
+    // the sanity gate above has passed, on purpose — see the comment there.
+    const closedCount = data.closeMissingJobs(company.id, seenExternalIds);
+    if (closedCount > 0) {
+        summary.closedJobs += closedCount;
+        onEvent({ type: 'company:closed', company: company.name, count: closedCount });
+    }
+
+    // Set once, at the end of this company's first healthy cycle — see
+    // server/domain/jobFreshness.js for what this line is actually for.
+    // A no-op on every cycle after the first (data/companies.js only
+    // writes it while it's still NULL).
+    data.setFirstScrapedAt(company.id, new Date().toISOString());
+
+    return true;
+}
+
+/**
+ * A cycle that throws part-way (TURSO-DROP-PROMPT.md: a dropped Turso
+ * connection that outlasted connection.js's retries) used to leave no trace
+ * at all — the companies it HAD refreshed were written, but no scrape_runs
+ * row, so the site's "last updated" kept the previous run's time and every
+ * company after the crash point silently went unscraped.
+ *
+ * Now it records what actually happened, then the caller rethrows — the run
+ * still goes red; this only makes the record truthful, it never hides the
+ * failure:
+ *
+ * - Only when at least one company was really refreshed. If nothing was, the
+ *   previous row standing is the truth (same rule as runCycle's own comment
+ *   on recordScrapeRun) and "last updated" must not move.
+ * - The company the crash happened on, and every company never reached, are
+ *   listed as failures, so failure_details says plainly that this was a
+ *   partial run and which data is stale.
+ * - If the database is down hard enough that this write fails too, that is
+ *   logged and the ORIGINAL error is what propagates — the one worth reading.
+ */
+function recordCrashedRun({ startedAt, summary, companies, index, refreshed, err }) {
+    if (refreshed === 0) return;
+
+    const crashed = companies[index];
+    const notReached = companies.slice(index + 1);
+    const failures = [
+        ...summary.failures,
+        ...(crashed ? [{ company: crashed.name, kind: FAILURE_KIND.BROKEN, loud: true, acknowledged: false,
+            error: `cycle crashed here: ${err.message}` }] : []),
+        ...notReached.map((c) => ({ company: c.name, kind: 'not-reached', loud: true, acknowledged: false,
+            error: 'not scraped — the cycle crashed before reaching it' })),
+    ];
+
+    try {
+        data.recordScrapeRun({
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            companies: summary.companies,
+            newJobs: summary.newJobs,
+            closedJobs: summary.closedJobs,
+            failures,
+        });
+    } catch (recordErr) {
+        console.error(`Could not record the crashed cycle either: ${recordErr.message}`);
+    }
+}
+
+/**
  * @param {(event: object) => void} [onEvent] progress callback
  * @returns {Promise<{companies: number, newJobs: number, closedJobs: number, matches: number, failures: object[]}>}
  */
@@ -50,107 +201,27 @@ async function runCycle(onEvent = () => {}) {
     const profiles = data.getActiveProfiles();
     const summary = { companies: companies.length, newJobs: 0, closedJobs: 0, matches: 0, failures: [] };
 
-    for (const company of companies) {
-        onEvent({ type: 'company:start', company: company.name });
-
-        let jobs;
-        try {
-            jobs = await buildAdapter(company).getCurrentJobs();
-        } catch (err) {
-            // One broken company must never stop the others. See ARCHITECTURE.md
-            // §4.3 — blast radius of a site change is one adapter. `classifyFailure`
-            // trusts a kind the adapter set at the exact point it understood the
-            // failure (server/domain/scrapeOutcome.js) and defaults to `broken` for
-            // a plain, unclassified Error — which is the correct default, not a gap.
-            recordFailure(summary, onEvent, company, classifyFailure(err), err.message);
-            continue;
+    // Index of the company being worked on, kept outside the loop so a crash
+    // can say how far the cycle got. `refreshed` counts companies whose data
+    // was actually written — the only thing that makes a crashed cycle worth
+    // a scrape_runs row at all (see recordCrashedRun).
+    let index = 0;
+    let refreshed = 0;
+    try {
+        for (; index < companies.length; index++) {
+            if (await scrapeCompany(companies[index], profiles, summary, onEvent)) refreshed++;
         }
-
-        onEvent({ type: 'company:fetched', company: company.name, count: jobs.length });
-
-        // Sanity gate (ARCHITECTURE.md §4.2, server/domain/scrapeSanity.js):
-        // "the company closed every role" and "the scraper broke" look
-        // identical in the data. Existing rows are left untouched when the
-        // gate refuses a result, and — critically — closure detection below
-        // never runs, so a broken adapter can never mass-close a company's
-        // listings. `company.last_refused_count` is what makes the gate's
-        // memory work: null unless the PREVIOUS cycle also refused this
-        // company, in which case a closely-matching count here means the
-        // drop is real, not a fluke — see evaluateSanityGate.
-        const openBefore = data.countOpenJobs(company.id);
-        const verdict = evaluateSanityGate(openBefore, jobs.length, company.last_refused_count);
-        if (!verdict.trusted) {
-            const streak = data.recordRefusal(company.id, jobs.length);
-            const escalated = streak >= REFUSAL_ESCALATION_THRESHOLD;
-            const kind = escalated ? FAILURE_KIND.BROKEN : FAILURE_KIND.REFUSED;
-            const reason = escalated
-                ? `sanity gate: ${verdict.reason} (refused ${streak} times in a row — treating as broken, not just held back)`
-                : `sanity gate: ${verdict.reason}`;
-            recordFailure(summary, onEvent, company, kind, reason, { refusalStreak: streak });
-            continue;
-        }
-        // Trusted — either normally, or because the gate's memory just accepted a
-        // repeating drop. Either way any past streak is over; a future refusal
-        // starts counting from zero rather than inheriting this one.
-        if (company.refusal_streak > 0) data.resetRefusalStreak(company.id);
-
-        // A known_issue_kind records "this is expected right now" — the
-        // moment a fetch actually succeeds that statement is false, and a
-        // stale acknowledgment is worse than none: it would silence a real
-        // failure of the same kind later. No human has to notice and clear
-        // it by hand; the run does it the moment it stops being true.
-        if (company.known_issue_kind) {
-            data.clearKnownIssue(company.id);
-            onEvent({ type: 'company:issue-cleared', company: company.name, kind: company.known_issue_kind });
-        }
-
-        // One SELECT + a handful of batched writes for the whole company,
-        // not two round trips per job — see the comment on
-        // upsertJobSnapshots in data/jobs.js for why that distinction only
-        // matters once the database is on the far side of a network.
-        const seenExternalIds = jobs.map((job) => job.externalId);
-        const results = data.upsertJobSnapshots(company.id, jobs);
-
-        for (const job of jobs) {
-            const { isNew, id } = results.get(job.externalId);
-            if (!isNew) continue;
-
-            summary.newJobs++;
-            onEvent({ type: 'job:new', company: company.name, title: job.title, location: job.location });
-
-            for (const profile of profiles) {
-                if (!matches(job, profile) || data.wasNotified(id, profile.id)) continue;
-
-                summary.matches++;
-                onEvent({ type: 'job:matched', profile: profile.name, title: job.title, url: job.applyUrl });
-
-                // Recorded, not sent. The queue-and-drain design is in
-                // ARCHITECTURE.md §4.5; until a sender exists this is console-only.
-                data.recordNotification(id, profile.id);
-            }
-        }
-
-        // Closure detection (ARCHITECTURE.md §4.3): only ever reached after
-        // the sanity gate above has passed, on purpose — see the comment there.
-        const closedCount = data.closeMissingJobs(company.id, seenExternalIds);
-        if (closedCount > 0) {
-            summary.closedJobs += closedCount;
-            onEvent({ type: 'company:closed', company: company.name, count: closedCount });
-        }
-
-        // Set once, at the end of this company's first healthy cycle — see
-        // server/domain/jobFreshness.js for what this line is actually for.
-        // A no-op on every cycle after the first (data/companies.js only
-        // writes it while it's still NULL).
-        data.setFirstScrapedAt(company.id, new Date().toISOString());
+    } catch (err) {
+        recordCrashedRun({ startedAt, summary, companies, index, refreshed, err });
+        err.crashedAt = companies[index]?.name;
+        throw err;
     }
 
     // Written unconditionally, success or partial failure — a scrape where
     // three companies failed still refreshed everyone else's data, and the
     // search page's "last updated" needs to reflect that. A cycle that
-    // crashes outright (never reaches here) correctly leaves the previous
-    // row standing, which is exactly what should happen: nothing was
-    // actually refreshed.
+    // crashes never reaches here — recordCrashedRun above decides whether
+    // what it did refresh is worth a row of its own.
     data.recordScrapeRun({
         startedAt,
         finishedAt: new Date().toISOString(),

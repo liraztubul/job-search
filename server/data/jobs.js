@@ -203,7 +203,10 @@ function upsertJobSnapshots(companyId, jobs) {
             sanitizePostedAt(job.postedAt),
             isTechJob(job) ? 1 : 0,
         ]);
-        db.prepare(sql).run(...params);
+        // Idempotent (see connection.js's TRANSIENT_ERRORS): replaying the
+        // same upsert with the same values leaves the same rows, and isNew
+        // was already decided from idsBefore, read before this ran.
+        db.prepare(sql, { idempotent: true }).run(...params);
     }
 
     const idsAfter = readIdsByExternalId();
@@ -308,7 +311,10 @@ function closeMissingJobs(companyId, seenExternalIds, now = new Date().toISOStri
     for (let i = 0; i < toClose.length; i += BATCH_SIZE) {
         const batch = toClose.slice(i, i + BATCH_SIZE);
         const placeholders = batch.map(() => '?').join(', ');
-        db.prepare(`UPDATE job_snapshots SET is_still_open = 0, closed_at = ? WHERE id IN (${placeholders})`).run(
+        // Idempotent: the same ids closed with the same `now` either way.
+        db.prepare(`UPDATE job_snapshots SET is_still_open = 0, closed_at = ? WHERE id IN (${placeholders})`, {
+            idempotent: true,
+        }).run(
             now,
             ...batch.map((row) => row.id)
         );
