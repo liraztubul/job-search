@@ -7,40 +7,58 @@
 # page — which cannot be styled or replaced. Someone arriving from a CV link
 # reasonably concludes the site is broken and closes the tab.
 #
-# WHY 07:00–23:00 AND NOT AROUND THE CLOCK
+# WHY ~07:00–23:00 AND NOT AROUND THE CLOCK
 #
-# The free tier grants 750 instance-hours per month, and a service consumes them
-# only while awake. A 31-day month is 744 hours, so keeping it up continuously
-# would land within six hours of the cap — and **exceeding it suspends every
-# free service until the first of the next month**, taking the site down
-# entirely. Six hours of margin is not margin.
+# The free tier grants 750 instance-hours per month, shared by every free
+# service in the workspace, and a service consumes them only while awake. A
+# 31-day month is 744 hours, so keeping this one up continuously would leave
+# almost nothing for any other project — and **exceeding the cap suspends every
+# free service until the first of the next month**.
 #
-# Sixteen hours a day is roughly 500 hours: comfortable headroom, and it covers
-# the window in which anyone is realistically clicking a portfolio link. The
-# site still sleeps overnight, which is fine — the first visitor at 07:00 waits,
-# and nobody else does.
+# 16 UTC hours a day is roughly 500 instance-hours a month, which leaves about
+# 250 for other projects and covers the window in which anyone is realistically
+# clicking a portfolio link. The site still sleeps overnight, which is fine —
+# the first visitor of the morning waits, and nobody else does.
+#
+# HOW THE HOURS MAP
+#
+# Cron here is UTC and has no concept of Israel's clock change. `5-20` is
+# 07:00–23:00 in winter (UTC+2) and 08:00–23:59 in summer (UTC+3). It drifts an
+# hour twice a year — harmless, and not worth the complexity of correcting.
+#
+# WHY EVERY 5 MINUTES, AT ODD MINUTES
+#
+# GitHub's scheduler is best-effort: runs are late, and some are dropped under
+# load. Against a 15-minute sleep window a 10-minute cadence leaves no margin —
+# one late run and the service naps (this was observed on 2026-11-10: the site
+# was asleep mid-afternoon with this workflow enabled). Every 5 minutes means a
+# single missed run still leaves a 10-minute gap.
+#
+# The minutes are 2, 7, 12 … 57 rather than 0, 5, 10 … because GitHub's queue is
+# busiest on the hour and half-hour, and runs scheduled there are the ones most
+# often delayed or dropped.
 #
 # WHAT THIS DOES NOT FIX
 #
-# GitHub's scheduler is best-effort. Runs are routinely late by five to fifteen
-# minutes and are dropped under load, so against a 15-minute sleep window some
-# pings will arrive too late and the service will nap anyway. This removes most
-# cold starts, not all of them. A dedicated uptime monitor (cron-job.org,
-# UptimeRobot — both free, no card) fires more reliably, because that is its
-# only job; worth switching to if the gaps turn out to matter.
+# This removes most cold starts, not all of them: it still depends on GitHub
+# actually firing the schedule. If gaps over 15 minutes show up often in the
+# Actions tab, the scheduler is the limit, and the real fix is to stop depending
+# on the container being awake for public pages (see the hosting notes).
+#
+# Don't swap in another pinging service without testing it: cron-job.org was
+# tried on 2026-11-10 and every ping got `429 Too Many Requests` from Render's
+# edge, so the container never saw it.
 #
 # Unlimited Actions minutes on a public repository is what makes this free. On a
-# private repo these ~2,900 monthly runs would consume the entire 2,000-minute
+# private repo these ~5,000 monthly runs would consume the entire 2,000-minute
 # allowance and starve the scrape workflow, which matters far more.
 
 name: Keep the site warm
 
 on:
   schedule:
-    # Every 10 minutes, 04:00–20:00 UTC = 07:00–23:00 Israel time (UTC+3 in
-    # summer). Israel's winter offset is UTC+2, so this drifts an hour twice a
-    # year — harmless here, and not worth the complexity of correcting.
-    - cron: '*/10 4-20 * * *'
+    # Every 5 minutes at minutes 2, 7, 12 … 57, 05:00–20:59 UTC.
+    - cron: '2-57/5 5-20 * * *'
 
   workflow_dispatch:
 
@@ -52,7 +70,8 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 3 attempts × up to 90 s each, plus two 20 s pauses, is ~5 min worst case.
+    timeout-minutes: 8
 
     steps:
       - name: Wake the service
@@ -61,19 +80,33 @@ jobs:
           # from its edge without ever reaching the container, so pinging it
           # would look like it was working and wake nothing at all.
           #
-          # And not /api/meta either, which is what this used to hit — that
-          # endpoint runs six queries across the network, so waking the service
-          # 96 times a day through it would mean ~600 pointless round trips to
-          # the database daily. /api/health reaches the process and touches
-          # nothing, which is all a wake-up call needs to do.
+          # And not /api/meta either — that endpoint runs six queries across
+          # the network, so waking the service this often through it would mean
+          # thousands of pointless round trips to the database. /api/health
+          # reaches the process and touches nothing, which is all a wake-up call
+          # needs to do.
           #
           # --max-time 90 because a cold start is the case this exists for —
           # the request that does the waking is the slow one, by definition.
           #
-          # No `set -e` and no failure on a bad status: this job going red would
-          # send an email that means "the site was asleep and is now awake",
-          # which is not a problem. Real failures show up in the scrape workflow,
-          # and an alert nobody acts on trains you to ignore all of them.
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 \
-            https://jobtrail-0xhs.onrender.com/api/health || echo "timeout")
-          echo "Response: $code"
+          # Up to 3 attempts, 20 s apart, stopping at the first 200: a single
+          # failed request (a network blip, or the 503 Render answers while the
+          # container is still starting) should not leave a 5-minute hole.
+          #
+          # The job always ends green (`exit 0`): a red run would send an email
+          # that means "the site was asleep and is now awake", which is not a
+          # problem. Real failures show up in the scrape workflow, and an alert
+          # nobody acts on trains you to ignore all of them. The status of every
+          # attempt is in the log.
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 \
+              https://jobtrail-0xhs.onrender.com/api/health) || true
+            echo "Attempt $attempt: response ${code:-none}"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 20
+            fi
+          done
+          exit 0
